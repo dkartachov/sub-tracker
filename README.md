@@ -2,7 +2,7 @@
 
 Track your subscriptions (Netflix, the climbing gym, software, anything you pay for regularly): what they cost per month and year, what's charging soon, when free trials end, and how prices have changed. Everything stays on the phone.
 
-Android app built with Expo (SDK 58), Expo Router and EAS, set up like `mobility-app`.
+Android app built with Expo (SDK 58), Expo Router and EAS.
 
 ## Running it
 
@@ -24,8 +24,6 @@ The project isn't linked to EAS yet. Once, while logged in to the `hogos` accoun
 npx eas-cli@latest init               # creates the EAS project and adds extra.eas.projectId to app.json
 npx eas-cli@latest update:configure   # adds updates.url to app.json
 ```
-
-After that the same scripts work as in mobility-app: `build:dev|preview|prod` and `update:dev|preview|prod`.
 
 ## Features
 
