@@ -69,7 +69,8 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const recentlyConverted = running
-    .filter((sub) => sub.isTrial && !trialWontConvert(sub))
+    // A cancellation, even one that only takes effect later, means it was noticed.
+    .filter((sub) => sub.isTrial && sub.cancelledOn === null)
     .filter((sub) => sub.firstPaymentDate <= today && sub.firstPaymentDate > addDays(today, -RECENTLY_CONVERTED_DAYS))
     .map(firstCharge)
     .sort((a, b) => b.date.localeCompare(a.date));

@@ -74,6 +74,21 @@ export function nextPaymentOnOrAfter(billing: Billing, from: DateKey): DateKey |
   }
 }
 
+/**
+ * When what's been paid for runs out, ignoring any cancellation: the first charge after `today`.
+ * A charge made today has paid for the period starting today, so it runs to the one after.
+ * Cancelling from this day keeps every charge up to and including today's.
+ */
+export function paidPeriodEnd(billing: Billing, today: DateKey): DateKey {
+  // Never null: without a cancellation there's always a next charge.
+  return nextPaymentOnOrAfter({ ...billing, cancelledOn: null }, addDays(today, 1))!;
+}
+
+/** Whether a charge falls on `date` (cancellation aside). */
+export function chargesOn(billing: Billing, date: DateKey): boolean {
+  return paymentsBetween({ ...billing, cancelledOn: null }, date, date).length > 0;
+}
+
 /** The price charged on `date`: the latest change in effect by then. */
 export function priceOn(prices: PriceChange[], date: DateKey): number {
   let amount = prices[0]?.amount ?? 0;

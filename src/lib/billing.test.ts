@@ -1,7 +1,9 @@
 import {
+  chargesOn,
   formatCycleAdverb,
   monthlyEquivalent,
   nextPaymentOnOrAfter,
+  paidPeriodEnd,
   paymentsBetween,
   priceOn,
   spentBetween,
@@ -93,4 +95,26 @@ describe('monthlyEquivalent', () => {
 it('names cycles', () => {
   expect(formatCycleAdverb({ count: 1, unit: 'month' })).toBe('Monthly');
   expect(formatCycleAdverb({ count: 3, unit: 'month' })).toBe('Every 3 months');
+});
+
+describe('paidPeriodEnd', () => {
+  it('is the next charge on a day without one', () => {
+    expect(paidPeriodEnd(monthly, '2026-02-10')).toBe('2026-02-28');
+  });
+
+  it("is the charge after today's on a charge day, so today's is kept", () => {
+    expect(paidPeriodEnd(monthly, '2026-02-28')).toBe('2026-03-31');
+  });
+
+  it('ignores a cancellation', () => {
+    expect(paidPeriodEnd({ ...monthly, cancelledOn: '2026-02-01' }, '2026-02-10')).toBe('2026-02-28');
+  });
+});
+
+describe('chargesOn', () => {
+  it('is true only on charge days, cancellation aside', () => {
+    expect(chargesOn(monthly, '2026-02-28')).toBe(true);
+    expect(chargesOn(monthly, '2026-02-27')).toBe(false);
+    expect(chargesOn({ ...monthly, cancelledOn: '2026-02-28' }, '2026-02-28')).toBe(true);
+  });
 });

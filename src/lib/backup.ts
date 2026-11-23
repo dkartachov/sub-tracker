@@ -10,7 +10,7 @@ import { nextCharge, statusOf, type Subscription } from '@/db/subscriptions';
 
 import { CYCLE_UNITS, formatCycleAdverb, monthlyEquivalent, priceOn, type CycleUnit, type PriceChange } from './billing';
 import { CURRENCIES, type Currency } from './currency';
-import type { DateKey } from './dates';
+import { fromDateKey, toDateKey, type DateKey } from './dates';
 
 /** Changes whenever the format does, so an older app can refuse a backup it can't read. */
 export const BACKUP_VERSION = 1;
@@ -55,7 +55,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 function dateKey(value: unknown, what: string): DateKey {
-  if (typeof value !== 'string' || !DATE_KEY.test(value)) fail(`${what} isn't a date.`);
+  // The round trip turns away days that don't exist, like Feb 30, which Date would roll over.
+  if (typeof value !== 'string' || !DATE_KEY.test(value) || toDateKey(fromDateKey(value)) !== value) {
+    fail(`${what} isn't a date.`);
+  }
   return value;
 }
 

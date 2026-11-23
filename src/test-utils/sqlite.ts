@@ -29,6 +29,9 @@ export async function createTestDb(): Promise<SQLiteDatabase> {
         throw error;
       }
     },
+    // One connection and no concurrency here, so the transaction handle is the database itself.
+    withExclusiveTransactionAsync: async (task: (txn: SQLiteDatabase) => Promise<void>) =>
+      db.withTransactionAsync(() => task(typed)),
   };
   const typed = db as unknown as SQLiteDatabase;
   await migrateDbIfNeeded(typed);

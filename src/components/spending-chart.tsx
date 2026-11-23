@@ -30,7 +30,15 @@ export function SpendingChart({ months }: { months: MonthSpending[] }) {
   const max = Math.max(...months.map((m) => m.charged + m.scheduled), 1);
   const hasScheduled = months.some((m) => m.scheduled > 0);
   const money = (minor: number) => formatMoney(minor, currency);
-  const height = (amount: number) => (amount > 0 ? Math.max((amount / max) * PLOT_HEIGHT, BAR_RADIUS) : 0);
+  // Both parts and the gap between them share the plot's height, so the tallest bar fits exactly.
+  // Each part is at least BAR_RADIUS tall, taken from the other part so the total doesn't grow.
+  const heights = ({ charged, scheduled }: MonthSpending) => {
+    const both = charged > 0 && scheduled > 0;
+    const total = ((charged + scheduled) / max) * (PLOT_HEIGHT - (both ? GAP : 0));
+    if (!both) return { charged: charged > 0 ? Math.max(total, BAR_RADIUS) : 0, scheduled: scheduled > 0 ? Math.max(total, BAR_RADIUS) : 0 };
+    const chargedHeight = Math.min(Math.max((total * charged) / (charged + scheduled), BAR_RADIUS), Math.max(total - BAR_RADIUS, BAR_RADIUS));
+    return { charged: chargedHeight, scheduled: Math.max(total - chargedHeight, BAR_RADIUS) };
+  };
 
   return (
     <View style={styles.container}>
@@ -52,6 +60,7 @@ export function SpendingChart({ months }: { months: MonthSpending[] }) {
       <View style={[styles.plot, { borderColor: theme.border }]}>
         {months.map((m, i) => {
           const isSelected = i === selectedIndex;
+          const height = heights(m);
           const label = `${monthName(m.month, 'long')}: ${money(m.charged)} charged${m.scheduled > 0 ? `, ${money(m.scheduled)} still to charge` : ''}`;
           return (
             <Pressable
@@ -65,7 +74,7 @@ export function SpendingChart({ months }: { months: MonthSpending[] }) {
                 <View
                   style={[
                     styles.bar,
-                    { height: height(m.scheduled), backgroundColor: theme.chartScheduled },
+                    { height: height.scheduled, backgroundColor: theme.chartScheduled },
                     m.charged > 0 && { marginBottom: GAP },
                     isSelected ? null : styles.dimmed,
                   ]}
@@ -75,7 +84,7 @@ export function SpendingChart({ months }: { months: MonthSpending[] }) {
                 <View
                   style={[
                     styles.bar,
-                    { height: height(m.charged), backgroundColor: theme.chartCharged },
+                    { height: height.charged, backgroundColor: theme.chartCharged },
                     // Only the topmost part gets the rounded end; a lower part is square under the gap.
                     m.scheduled > 0 && styles.squareTop,
                     isSelected ? null : styles.dimmed,

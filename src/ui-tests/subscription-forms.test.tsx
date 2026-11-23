@@ -10,8 +10,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import CancelScreen from '@/app/subscription/cancel';
 import EditSubscriptionScreen from '@/app/subscription/edit';
 import PriceChangeScreen from '@/app/subscription/price-change';
-import { createSubscription, getSubscriptions, type SubscriptionInput } from '@/db/subscriptions';
+import { addPriceChange, createSubscription, getSubscriptions, setCancelled, type SubscriptionInput } from '@/db/subscriptions';
 import { setCurrency } from '@/lib/currency';
+import { addDays, todayKey } from '@/lib/dates';
 import { createTestDb } from '@/test-utils/sqlite';
 
 let mockDb: SQLiteDatabase;
@@ -137,4 +138,43 @@ it('cancels when the paid period ends', async () => {
   const [sub] = await getSubscriptions(mockDb);
   // The day it would charge next: the 15th of a month after today.
   expect(sub.cancelledOn).toMatch(/^\d{4}-\d{2}-15$/);
+});
+
+it("keeps a trial's first charge when cancelling on the day it converts", async () => {
+  const today = todayKey();
+  const id = await createSubscription(mockDb, { ...netflix, isTrial: true, firstPaymentDate: today }, 999);
+  mockParams = { id: String(id) };
+  await renderScreen(<CancelScreen />);
+
+  // It already charged today, so the end of the paid period is picked, and Today warns.
+  expect(await screen.findByText(/You keep access until/)).toBeTruthy();
+  await fireEvent.press(screen.getByText('Today'));
+  expect(screen.getByText(/Today's €9\.99 charge won't be counted either/)).toBeTruthy();
+  await fireEvent.press(screen.getByText('When paid period ends'));
+  await fireEvent.press(screen.getByText('Mark cancelled'));
+
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  const [sub] = await getSubscriptions(mockDb);
+  expect(sub.cancelledOn! > today).toBe(true);
+});
+
+it("names a trial's first charge at the price on the day it converts", async () => {
+  const converts = addDays(todayKey(), 10);
+  const id = await createSubscription(mockDb, { ...netflix, isTrial: true, firstPaymentDate: converts }, 999);
+  await addPriceChange(mockDb, id, 1299, converts);
+  mockParams = { id: String(id) };
+  await renderScreen(<CancelScreen />);
+
+  expect(await screen.findByText(/the €12\.99 first charge won't be counted/)).toBeTruthy();
+});
+
+it("reopens a trial's cancellation on its conversion day as another day", async () => {
+  const converts = addDays(todayKey(), 10);
+  const id = await createSubscription(mockDb, { ...netflix, isTrial: true, firstPaymentDate: converts }, 999);
+  await setCancelled(mockDb, id, converts);
+  mockParams = { id: String(id) };
+  await renderScreen(<CancelScreen />);
+
+  expect(await screen.findByText(/A past day if you cancelled/)).toBeTruthy();
+  expect(screen.queryByText(/You keep access until/)).toBeNull();
 });

@@ -44,6 +44,8 @@ it('refuses a subscription with bad data, naming it', () => {
   expect(() => parseBackup(broken({ prices: [] }))).toThrow('“Netflix” has no price');
   expect(() => parseBackup(broken({ prices: [{ amount: 12.5, effectiveDate: '2026-01-10' }] }))).toThrow('whole positive');
   expect(() => parseBackup(broken({ firstPaymentDate: 'yesterday' }))).toThrow("first payment isn't a date");
+  expect(() => parseBackup(broken({ firstPaymentDate: '2026-02-30' }))).toThrow("first payment isn't a date");
+  expect(() => parseBackup(broken({ firstPaymentDate: '2026-13-01' }))).toThrow("first payment isn't a date");
   expect(() => parseBackup(broken({ category: 'pets' }))).toThrow('unknown category');
   expect(() => parseBackup(broken({ name: '' }))).toThrow('Subscription 1 has no name');
 });

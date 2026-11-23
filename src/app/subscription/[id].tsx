@@ -216,7 +216,7 @@ function TrialNotice({ sub, today }: { sub: Subscription; today: DateKey }) {
     const lastFreeDay = addDays(sub.firstPaymentDate, -1);
     title = daysLeft === 1 ? 'Last free day: cancel today to pay nothing' : `${daysLeft} free days left`;
     body = `It's free until ${formatDateKey(lastFreeDay)}. Unless you cancel by then, ${amount} is charged on ${formatDateKey(sub.firstPaymentDate)}.`;
-  } else if (-daysLeft < RECENTLY_CONVERTED_DAYS) {
+  } else if (sub.cancelledOn === null && -daysLeft < RECENTLY_CONVERTED_DAYS) {
     title = 'Your free trial has ended';
     body = `It turned paid ${daysLeft === 0 ? 'today' : `on ${formatDateKey(sub.firstPaymentDate)}`}, at ${amount} per ${formatCycle(sub.cycle)}. Cancel it if you didn't mean to keep it.`;
   } else {

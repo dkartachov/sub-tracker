@@ -34,7 +34,14 @@ export default function RestoreScreen() {
       return;
     }
     setError(null);
-    const current = (await getSubscriptions(db)).length;
+    let current: number;
+    try {
+      current = (await getSubscriptions(db)).length;
+    } catch (e) {
+      console.error(e);
+      setError('Restoring failed, so nothing was changed.');
+      return;
+    }
 
     const apply = async () => {
       setRestoring(true);

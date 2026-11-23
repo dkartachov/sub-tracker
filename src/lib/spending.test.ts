@@ -120,3 +120,8 @@ it('totals each of the last months, this one split into charged and still to com
     { month: '2026-03-01', charged: 0, scheduled: 1000 },
   ]);
 });
+
+it("doesn't point out a trial that turned paid once it's been cancelled", () => {
+  const overview = getOverview([sub({ isTrial: true, firstPaymentDate: '2026-03-02', cancelledOn: '2026-04-02' })], TODAY);
+  expect(overview.recentlyConverted).toEqual([]);
+});

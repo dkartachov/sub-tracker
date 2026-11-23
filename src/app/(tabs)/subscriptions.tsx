@@ -40,7 +40,9 @@ export default function SubscriptionsScreen() {
 
   if (subs === undefined) return <Screen title="Subscriptions">{null}</Screen>;
 
-  const { running, cancelled } = arrangeSubscriptions(subs, today, sort, query);
+  // The search only applies while its field is there to see and clear it.
+  const activeQuery = subs.length >= SEARCH_FROM ? query : '';
+  const { running, cancelled } = arrangeSubscriptions(subs, today, sort, activeQuery);
   const money = (amount: number) => formatMoney(amount, currency);
 
   return (
@@ -73,7 +75,7 @@ export default function SubscriptionsScreen() {
       )}
 
       {subs.length > 0 && running.length === 0 && cancelled.length === 0 && (
-        <ThemedText themeColor="textSecondary">Nothing matches “{query.trim()}”.</ThemedText>
+        <ThemedText themeColor="textSecondary">Nothing matches “{activeQuery.trim()}”.</ThemedText>
       )}
 
       {running.length > 0 && (

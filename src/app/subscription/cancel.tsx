@@ -9,8 +9,9 @@ import { Field } from '@/components/field';
 import { FormScreen } from '@/components/form-screen';
 import { PageHeader } from '@/components/page-header';
 import { ThemedText } from '@/components/themed-text';
-import { nextCharge, setCancelled, statusOf, useSubscription, type Subscription } from '@/db/subscriptions';
+import { setCancelled, statusOf, useSubscription, type Subscription } from '@/db/subscriptions';
 import { useToday } from '@/hooks/use-today';
+import { chargesOn, paidPeriodEnd, priceOn } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
 import { formatDateKey, formatShortDate, type DateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
@@ -30,16 +31,24 @@ function CancelForm({ sub }: { sub: Subscription }) {
   const today = useToday();
 
   // The charge it would make next if it weren't cancelled, which is when a paid period runs out.
-  const periodEnd = nextCharge({ ...sub, cancelledOn: null }, today)?.date ?? null;
+  // On a charge day that's the one after today's, which has already been paid.
+  const periodEnd = paidPeriodEnd(sub, today);
   const isTrial = statusOf({ ...sub, cancelledOn: null }, today) === 'trial';
+  // A charge today (a trial's first one included) has most likely gone through already.
+  const chargedToday = !isTrial && chargesOn(sub, today);
+  const options: When[] = isTrial ? ['today', 'other'] : ['today', 'periodEnd', 'other'];
 
-  const initial: When = sub.cancelledOn === null || sub.cancelledOn === today ? 'today' : sub.cancelledOn === periodEnd ? 'periodEnd' : 'other';
-  const [when, setWhen] = useState<When>(initial);
+  const initialWhen = (): When => {
+    if (sub.cancelledOn === null) return chargedToday ? 'periodEnd' : 'today';
+    if (sub.cancelledOn === today) return 'today';
+    if (sub.cancelledOn === periodEnd && options.includes('periodEnd')) return 'periodEnd';
+    return 'other';
+  };
+  const [when, setWhen] = useState<When>(initialWhen);
   const [otherDate, setOtherDate] = useState<DateKey>(sub.cancelledOn ?? today);
   const [saving, setSaving] = useState(false);
 
-  const cancelledOn = when === 'today' ? today : when === 'periodEnd' && periodEnd ? periodEnd : otherDate;
-  const options: When[] = periodEnd && !isTrial ? ['today', 'periodEnd', 'other'] : ['today', 'other'];
+  const cancelledOn = when === 'today' ? today : when === 'periodEnd' ? periodEnd : otherDate;
   const label = (option: When) =>
     option === 'today' ? 'Today' : option === 'periodEnd' ? `When paid period ends` : 'Another day';
 
@@ -58,11 +67,13 @@ function CancelForm({ sub }: { sub: Subscription }) {
   const future = cancelledOn > today;
   const effect = isTrial
     ? cancelledOn <= sub.firstPaymentDate
-      ? `The trial won't turn into a paid plan, so the ${formatMoney(sub.prices[0].amount, currency)} first charge won't be counted.`
+      ? `The trial won't turn into a paid plan, so the ${formatMoney(priceOn(sub.prices, sub.firstPaymentDate), currency)} first charge won't be counted.`
       : `The trial converts on ${formatShortDate(sub.firstPaymentDate, today)} first, so charges are counted until then.`
     : future
       ? `It keeps running until ${formatDateKey(cancelledOn)}, with no charges counted from that day on.`
-      : `No charges are counted from ${cancelledOn === today ? 'today' : formatDateKey(cancelledOn)} on. Charges before it stay in what you've spent.`;
+      : cancelledOn === today && chargedToday
+        ? `Today's ${formatMoney(priceOn(sub.prices, today), currency)} charge won't be counted either. If it's already gone through, pick “When paid period ends” to keep it.`
+        : `No charges are counted from ${cancelledOn === today ? 'today' : formatDateKey(cancelledOn)} on. Charges before it stay in what you've spent.`;
 
   return (
     <FormScreen>
@@ -73,7 +84,7 @@ function CancelForm({ sub }: { sub: Subscription }) {
 
       <Field label="Charges stop">
         <ChipGroup options={options} value={when} onChange={setWhen} label={label} />
-        {when === 'periodEnd' && periodEnd && (
+        {when === 'periodEnd' && (
           <ThemedText type="small" themeColor="textSecondary">
             You keep access until {formatDateKey(periodEnd)}, the day it would have charged next.
           </ThemedText>
