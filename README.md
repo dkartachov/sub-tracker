@@ -38,6 +38,14 @@ npx eas-cli@latest update:configure   # adds updates.url to app.json
 - **One currency**, picked in Settings. Changing it doesn't convert amounts. Yen prices are whole amounts.
 - **Backup**: Settings exports a backup as text through the share sheet (to Drive, email, a notes app), restored by pasting it back in, and a CSV for spreadsheets. Text keeps it free of extra native modules; a file-based backup would need a new build.
 
+## Later: features that need a new build
+
+Everything above ships as an OTA update. These add native code or change the Android manifest, so they'd go out with the next `npm run build:*` instead:
+
+- **Home-screen widget** with the monthly total and the next few charges. SDK 58 has an official module for it, `expo-widgets`, which supports Android (with `@expo/ui` Jetpack Compose components). Its layouts can't run hooks or read the database, so the app would push the numbers with `updateSnapshot` whenever the subscriptions change.
+- **File-based backup**: export to a `.json` file and pick one to restore, with `expo-file-system`, `expo-sharing` and `expo-document-picker`, replacing the copy-and-paste text backup.
+- **Android Auto Backup**: `android.allowBackup` is `false` in `app.json`. Turning it on lets Android back the database up to the user's Google account and restore it on a new phone. Scheduled reminders aren't restored with it, but `ReminderScheduler` sets them again on the first launch.
+
 ## Data model
 
 Two tables, in `src/db/schema.ts`:
