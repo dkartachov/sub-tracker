@@ -1,8 +1,9 @@
 import type { Subscription } from '@/db/subscriptions';
+import { simpleSubscription } from '@/test-utils/subscription';
 
 import { BackupError, createBackup, parseBackup, serializeBackup, subscriptionsCsv } from './backup';
 
-const netflix: Subscription = {
+const netflix: Subscription = simpleSubscription({
   id: 4,
   name: 'Netflix',
   category: 'streaming',
@@ -16,7 +17,7 @@ const netflix: Subscription = {
     { amount: 1299, effectiveDate: '2026-01-10' },
     { amount: 1499, effectiveDate: '2026-06-10' },
   ],
-};
+});
 
 const text = (overrides: Record<string, unknown> = {}) =>
   JSON.stringify({ ...createBackup([netflix], 'EUR', new Date(Date.UTC(2026, 2, 1))), ...overrides });
@@ -35,7 +36,7 @@ it('accepts a backup with spaces or lines around it', () => {
 it('refuses text that is not a backup, saying why', () => {
   expect(() => parseBackup('hello')).toThrow(BackupError);
   expect(() => parseBackup('{"app":"other"}')).toThrow("isn't a Subtracker backup");
-  expect(() => parseBackup(text({ version: 2 }))).toThrow('newer version');
+  expect(() => parseBackup(text({ version: 3 }))).toThrow('newer version');
   expect(() => parseBackup(text({ currency: 'XYZ' }))).toThrow('unknown currency');
 });
 
@@ -43,11 +44,44 @@ it('refuses a subscription with bad data, naming it', () => {
   const broken = (sub: Record<string, unknown>) => text({ subscriptions: [{ ...netflix, ...sub }] });
   expect(() => parseBackup(broken({ prices: [] }))).toThrow('“Netflix” has no price');
   expect(() => parseBackup(broken({ prices: [{ amount: 12.5, effectiveDate: '2026-01-10' }] }))).toThrow('whole positive');
-  expect(() => parseBackup(broken({ firstPaymentDate: 'yesterday' }))).toThrow("first payment isn't a date");
-  expect(() => parseBackup(broken({ firstPaymentDate: '2026-02-30' }))).toThrow("first payment isn't a date");
-  expect(() => parseBackup(broken({ firstPaymentDate: '2026-13-01' }))).toThrow("first payment isn't a date");
+  const period = netflix.periods[0];
+  expect(() => parseBackup(broken({ periods: [] }))).toThrow('“Netflix” has no billing');
+  expect(() => parseBackup(broken({ periods: [{ ...period, start: 'yesterday' }] }))).toThrow("billing start isn't a date");
+  expect(() => parseBackup(broken({ periods: [{ ...period, start: '2026-02-30' }] }))).toThrow("billing start isn't a date");
+  expect(() => parseBackup(broken({ periods: [{ ...period, start: '2026-13-01' }] }))).toThrow("billing start isn't a date");
+  expect(() => parseBackup(broken({ periods: [period, { ...period, start: '2026-05-01' }] }))).toThrow('overlap');
+  expect(() =>
+    parseBackup(broken({ periods: [{ ...period, end: '2026-05-01' }, { ...period, start: '2026-04-01' }] }))
+  ).toThrow('overlap');
   expect(() => parseBackup(broken({ category: 'pets' }))).toThrow('unknown category');
   expect(() => parseBackup(broken({ name: '' }))).toThrow('Subscription 1 has no name');
+});
+
+it('reads a version 1 backup, with one billing cycle per subscription', () => {
+  const v1 = {
+    app: 'subtracker',
+    version: 1,
+    exportedAt: '2026-03-01T00:00:00.000Z',
+    currency: 'EUR',
+    subscriptions: [
+      {
+        name: 'Netflix',
+        category: 'streaming',
+        cycle: { count: 1, unit: 'month' },
+        firstPaymentDate: '2026-01-10',
+        isTrial: false,
+        cancelledOn: '2026-05-10',
+        reminderDaysBefore: 3,
+        notes: '',
+        prices: [{ amount: 1299, effectiveDate: '2026-01-10' }],
+      },
+    ],
+  };
+  const [sub] = parseBackup(JSON.stringify(v1)).subscriptions;
+  expect(sub.periods).toEqual([{ start: '2026-01-10', cycle: { count: 1, unit: 'month' }, end: '2026-05-10' }]);
+  expect(() =>
+    parseBackup(JSON.stringify({ ...v1, subscriptions: [{ ...v1.subscriptions[0], firstPaymentDate: 'soon' }] }))
+  ).toThrow("first payment isn't a date");
 });
 
 it('writes a CSV row per subscription, quoting what needs it', () => {

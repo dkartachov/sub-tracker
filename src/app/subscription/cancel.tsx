@@ -11,9 +11,9 @@ import { PageHeader } from '@/components/page-header';
 import { ThemedText } from '@/components/themed-text';
 import { setCancelled, statusOf, useSubscription, type Subscription } from '@/db/subscriptions';
 import { useToday } from '@/hooks/use-today';
-import { chargesOn, paidPeriodEnd, priceOn } from '@/lib/billing';
+import { chargesOn, finalEnd, firstPaymentDate, lastPeriod, paidPeriodEnd, priceOn, withoutFinalEnd } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
-import { formatDateKey, formatShortDate, type DateKey } from '@/lib/dates';
+import { addDays, formatDateKey, formatShortDate, fromDateKey, type DateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
 
 /** Marks the subscription in `id` cancelled from a chosen day, or changes that day. */
@@ -33,29 +33,36 @@ function CancelForm({ sub }: { sub: Subscription }) {
   // The charge it would make next if it weren't cancelled, which is when a paid period runs out.
   // On a charge day that's the one after today's, which has already been paid.
   const periodEnd = paidPeriodEnd(sub, today);
-  const isTrial = statusOf({ ...sub, cancelledOn: null }, today) === 'trial';
+  const cancelledOn = finalEnd(sub);
+  const firstPayment = firstPaymentDate(sub);
+  const isTrial = statusOf(withoutFinalEnd(sub), today) === 'trial';
+  // After a resume or plan change, the cancellation ends the latest period, so it has to come after
+  // that period's first charge. The first period can be called off before it charges (a trial).
+  const earliest = sub.periods.length > 1 ? addDays(lastPeriod(sub).start, 1) : null;
   // A charge today (a trial's first one included) has most likely gone through already.
   const chargedToday = !isTrial && chargesOn(sub, today);
   const options: When[] = isTrial ? ['today', 'other'] : ['today', 'periodEnd', 'other'];
 
   const initialWhen = (): When => {
-    if (sub.cancelledOn === null) return chargedToday ? 'periodEnd' : 'today';
-    if (sub.cancelledOn === today) return 'today';
-    if (sub.cancelledOn === periodEnd && options.includes('periodEnd')) return 'periodEnd';
+    if (cancelledOn === null) return chargedToday ? 'periodEnd' : 'today';
+    if (cancelledOn === today) return 'today';
+    if (cancelledOn === periodEnd && options.includes('periodEnd')) return 'periodEnd';
     return 'other';
   };
   const [when, setWhen] = useState<When>(initialWhen);
-  const [otherDate, setOtherDate] = useState<DateKey>(sub.cancelledOn ?? today);
+  const [otherDate, setOtherDate] = useState<DateKey>(cancelledOn ?? today);
   const [saving, setSaving] = useState(false);
 
-  const cancelledOn = when === 'today' ? today : when === 'periodEnd' ? periodEnd : otherDate;
+  const chosen = when === 'today' ? today : when === 'periodEnd' ? periodEnd : otherDate;
+  const valid = earliest === null || chosen >= earliest;
   const label = (option: When) =>
     option === 'today' ? 'Today' : option === 'periodEnd' ? `When paid period ends` : 'Another day';
 
   const save = async () => {
+    if (!valid) return;
     setSaving(true);
     try {
-      await setCancelled(db, sub.id, cancelledOn);
+      await setCancelled(db, sub.id, chosen);
       haptic.success();
       router.back();
     } catch (error) {
@@ -64,21 +71,23 @@ function CancelForm({ sub }: { sub: Subscription }) {
     }
   };
 
-  const future = cancelledOn > today;
-  const effect = isTrial
-    ? cancelledOn <= sub.firstPaymentDate
-      ? `The trial won't turn into a paid plan, so the ${formatMoney(priceOn(sub.prices, sub.firstPaymentDate), currency)} first charge won't be counted.`
-      : `The trial converts on ${formatShortDate(sub.firstPaymentDate, today)} first, so charges are counted until then.`
-    : future
-      ? `It keeps running until ${formatDateKey(cancelledOn)}, with no charges counted from that day on.`
-      : cancelledOn === today && chargedToday
-        ? `Today's ${formatMoney(priceOn(sub.prices, today), currency)} charge won't be counted either. If it's already gone through, pick “When paid period ends” to keep it.`
-        : `No charges are counted from ${cancelledOn === today ? 'today' : formatDateKey(cancelledOn)} on. Charges before it stay in what you've spent.`;
+  const future = chosen > today;
+  const effect = !valid
+    ? `Pick a day after ${formatDateKey(lastPeriod(sub).start)}, when it last started charging.`
+    : isTrial
+      ? chosen <= firstPayment
+        ? `The trial won't turn into a paid plan, so the ${formatMoney(priceOn(sub.prices, firstPayment), currency)} first charge won't be counted.`
+        : `The trial converts on ${formatShortDate(firstPayment, today)} first, so charges are counted until then.`
+      : future
+        ? `It keeps running until ${formatDateKey(chosen)}, with no charges counted from that day on.`
+        : chosen === today && chargedToday
+          ? `Today's ${formatMoney(priceOn(sub.prices, today), currency)} charge won't be counted either. If it's already gone through, pick “When paid period ends” to keep it.`
+          : `No charges are counted from ${chosen === today ? 'today' : formatDateKey(chosen)} on. Charges before it stay in what you've spent.`;
 
   return (
     <FormScreen>
       <PageHeader
-        title={sub.cancelledOn ? 'Change cancellation' : `Cancel ${sub.name}`}
+        title={cancelledOn ? 'Change cancellation' : `Cancel ${sub.name}`}
         subtitle="From which day is nothing charged? You can resume it later."
       />
 
@@ -91,7 +100,12 @@ function CancelForm({ sub }: { sub: Subscription }) {
         )}
         {when === 'other' && (
           <>
-            <DateField value={otherDate} onChange={setOtherDate} defaultDate={new Date()} />
+            <DateField
+              value={otherDate}
+              onChange={setOtherDate}
+              defaultDate={new Date()}
+              minimumDate={earliest ? fromDateKey(earliest) : undefined}
+            />
             <ThemedText type="small" themeColor="textSecondary">
               A past day if you cancelled a while ago and are only noting it now.
             </ThemedText>
@@ -101,7 +115,7 @@ function CancelForm({ sub }: { sub: Subscription }) {
 
       <ThemedText>{effect}</ThemedText>
 
-      <Button title={sub.cancelledOn ? 'Save' : 'Mark cancelled'} onPress={save} loading={saving} />
+      <Button title={cancelledOn ? 'Save' : 'Mark cancelled'} onPress={save} disabled={!valid} loading={saving} />
     </FormScreen>
   );
 }

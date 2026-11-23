@@ -4,11 +4,12 @@ import { addDatabaseChangeListener, useSQLiteContext } from 'expo-sqlite';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 
+import { SUBSCRIPTION_TABLES } from '@/db/subscriptions';
 import { useCurrency } from '@/lib/currency';
 import { syncRenewalReminders } from '@/lib/renewal-reminders';
 import { useReminderTime } from '@/lib/reminder-time';
 
-const SYNCED_TABLES = ['subscriptions', 'price_changes'];
+const SYNCED_TABLES = SUBSCRIPTION_TABLES;
 
 setNotificationHandler({
   handleNotification: async () => ({

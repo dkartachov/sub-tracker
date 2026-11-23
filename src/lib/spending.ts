@@ -2,10 +2,10 @@
 import type { Category } from '@/constants/categories';
 import { nextCharge, statusOf, trialWontConvert, type Subscription } from '@/db/subscriptions';
 
-import { chargesBetween, monthlyEquivalent, spentBetween } from './billing';
+import { chargeOn, chargesBetween, firstPaymentDate, monthlyEquivalent, spentBetween, type Charge } from './billing';
 import { addDays, addMonthsClamped, type DateKey } from './dates';
 
-export type UpcomingCharge = { sub: Subscription; date: DateKey; amount: number };
+export type UpcomingCharge = Charge & { sub: Subscription };
 
 export type Overview = {
   /**
@@ -47,7 +47,7 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
     // A trial costs nothing yet, but what it will cost is what's worth knowing.
     const next = nextCharge(sub, today);
     if (!next) continue;
-    const perMonth = monthlyEquivalent(next.amount, sub.cycle);
+    const perMonth = monthlyEquivalent(next.amount, next.cycle);
     monthly += perMonth;
     categoryTotals.set(sub.category, (categoryTotals.get(sub.category) ?? 0) + perMonth);
   }
@@ -56,11 +56,7 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
     .flatMap((sub) => chargesBetween(sub, today, upcomingEnd).map((charge) => ({ sub, ...charge })))
     .sort((a, b) => a.date.localeCompare(b.date) || a.sub.name.localeCompare(b.sub.name));
 
-  const firstCharge = (sub: Subscription): UpcomingCharge => ({
-    sub,
-    date: sub.firstPaymentDate,
-    amount: chargesBetween(sub, sub.firstPaymentDate, sub.firstPaymentDate)[0]?.amount ?? 0,
-  });
+  const firstCharge = (sub: Subscription): UpcomingCharge => ({ sub, ...chargeOn(sub, firstPaymentDate(sub)) });
 
   const trialsEnding = running
     .filter((sub) => statusOf(sub, today) === 'trial' && !trialWontConvert(sub))
@@ -70,8 +66,8 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
 
   const recentlyConverted = running
     // A cancellation, even one that only takes effect later, means it was noticed.
-    .filter((sub) => sub.isTrial && sub.cancelledOn === null)
-    .filter((sub) => sub.firstPaymentDate <= today && sub.firstPaymentDate > addDays(today, -RECENTLY_CONVERTED_DAYS))
+    .filter((sub) => sub.isTrial && sub.periods.length === 1 && sub.periods[0].end === null)
+    .filter((sub) => firstPaymentDate(sub) <= today && firstPaymentDate(sub) > addDays(today, -RECENTLY_CONVERTED_DAYS))
     .map(firstCharge)
     .sort((a, b) => b.date.localeCompare(a.date));
 

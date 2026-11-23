@@ -1,11 +1,12 @@
 import type { Subscription } from '@/db/subscriptions';
+import { simpleSubscription, type SimpleSubscription } from '@/test-utils/subscription';
 
 import { planReminders } from './renewal-reminders';
 
 jest.mock('expo-notifications', () => ({ AndroidImportance: {} }));
 
-function sub(overrides: Partial<Subscription>): Subscription {
-  return {
+function sub(overrides: Partial<SimpleSubscription>): Subscription {
+  return simpleSubscription({
     id: 7,
     name: 'Netflix',
     category: 'streaming',
@@ -17,7 +18,7 @@ function sub(overrides: Partial<Subscription>): Subscription {
     notes: '',
     prices: [{ amount: 1299, effectiveDate: '2026-01-10' }],
     ...overrides,
-  };
+  });
 }
 
 const NOW = new Date(2026, 2, 8, 12, 0); // Mar 8, noon

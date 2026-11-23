@@ -1,5 +1,9 @@
 import {
+  chargesBetween,
   chargesOn,
+  cycleOn,
+  endsAfter,
+  newPeriodProblem,
   formatCycleAdverb,
   monthlyEquivalent,
   nextPaymentOnOrAfter,
@@ -7,15 +11,20 @@ import {
   paymentsBetween,
   priceOn,
   spentBetween,
+  stoppedSince,
   type Billing,
 } from './billing';
+import { simpleBilling, type SimpleBilling } from '@/test-utils/subscription';
 
-const monthly: Billing = {
+const monthlyPlan: SimpleBilling = {
   firstPaymentDate: '2026-01-31',
   cycle: { count: 1, unit: 'month' },
   cancelledOn: null,
   prices: [{ amount: 999, effectiveDate: '2026-01-31' }],
 };
+const monthly = simpleBilling(monthlyPlan);
+/** The monthly plan with some of it changed. */
+const plan = (changes: Partial<SimpleBilling>): Billing => simpleBilling({ ...monthlyPlan, ...changes });
 
 describe('paymentsBetween', () => {
   it('keeps the day of the month, clamped to shorter months', () => {
@@ -33,12 +42,12 @@ describe('paymentsBetween', () => {
   });
 
   it('stops at the cancellation', () => {
-    const cancelled = { ...monthly, cancelledOn: '2026-03-31' };
+    const cancelled = plan({ cancelledOn: '2026-03-31' });
     expect(paymentsBetween(cancelled, '2026-01-01', '2026-12-31')).toEqual(['2026-01-31', '2026-02-28']);
   });
 
   it('handles multi-week cycles', () => {
-    const biweekly: Billing = { ...monthly, firstPaymentDate: '2026-01-01', cycle: { count: 2, unit: 'week' } };
+    const biweekly = plan({ firstPaymentDate: '2026-01-01', cycle: { count: 2, unit: 'week' } });
     expect(paymentsBetween(biweekly, '2026-01-10', '2026-02-15')).toEqual(['2026-01-15', '2026-01-29', '2026-02-12']);
   });
 });
@@ -54,24 +63,23 @@ describe('nextPaymentOnOrAfter', () => {
   });
 
   it('is null once cancelled', () => {
-    expect(nextPaymentOnOrAfter({ ...monthly, cancelledOn: '2026-03-01' }, '2026-03-01')).toBeNull();
+    expect(nextPaymentOnOrAfter(plan({ cancelledOn: '2026-03-01' }), '2026-03-01')).toBeNull();
   });
 
   it('handles yearly plans across leap days', () => {
-    const yearly: Billing = { ...monthly, firstPaymentDate: '2024-02-29', cycle: { count: 1, unit: 'year' } };
+    const yearly = plan({ firstPaymentDate: '2024-02-29', cycle: { count: 1, unit: 'year' } });
     expect(nextPaymentOnOrAfter(yearly, '2025-01-01')).toBe('2025-02-28');
     expect(nextPaymentOnOrAfter(yearly, '2028-01-01')).toBe('2028-02-29');
   });
 });
 
 describe('prices', () => {
-  const raised: Billing = {
-    ...monthly,
+  const raised = plan({
     prices: [
       { amount: 999, effectiveDate: '2026-01-31' },
       { amount: 1299, effectiveDate: '2026-03-15' },
     ],
-  };
+  });
 
   it('charges the price in effect on each day', () => {
     expect(priceOn(raised.prices, '2026-02-28')).toBe(999);
@@ -107,7 +115,7 @@ describe('paidPeriodEnd', () => {
   });
 
   it('ignores a cancellation', () => {
-    expect(paidPeriodEnd({ ...monthly, cancelledOn: '2026-02-01' }, '2026-02-10')).toBe('2026-02-28');
+    expect(paidPeriodEnd(plan({ cancelledOn: '2026-02-01' }), '2026-02-10')).toBe('2026-02-28');
   });
 });
 
@@ -115,6 +123,77 @@ describe('chargesOn', () => {
   it('is true only on charge days, cancellation aside', () => {
     expect(chargesOn(monthly, '2026-02-28')).toBe(true);
     expect(chargesOn(monthly, '2026-02-27')).toBe(false);
-    expect(chargesOn({ ...monthly, cancelledOn: '2026-02-28' }, '2026-02-28')).toBe(true);
+    expect(chargesOn(plan({ cancelledOn: '2026-02-28' }), '2026-02-28')).toBe(true);
+  });
+});
+
+describe('billing periods', () => {
+  const month = { count: 1, unit: 'month' } as const;
+  const year = { count: 1, unit: 'year' } as const;
+  const prices = [{ amount: 1000, effectiveDate: '2026-01-10' }];
+
+  // Cancelled from Mar 10, resumed on May 20.
+  const resumed: Billing = {
+    periods: [
+      { start: '2026-01-10', cycle: month, end: '2026-03-10' },
+      { start: '2026-05-20', cycle: month, end: null },
+    ],
+    prices,
+  };
+
+  // Monthly, then yearly from Apr 1.
+  const switched: Billing = {
+    periods: [
+      { start: '2026-01-10', cycle: month, end: '2026-04-01' },
+      { start: '2026-04-01', cycle: year, end: null },
+    ],
+    prices: [...prices, { amount: 10000, effectiveDate: '2026-04-01' }],
+  };
+
+  it('charges nothing between a cancellation and a resume', () => {
+    expect(paymentsBetween(resumed, '2026-01-01', '2026-07-31')).toEqual([
+      '2026-01-10',
+      '2026-02-10',
+      '2026-05-20',
+      '2026-06-20',
+      '2026-07-20',
+    ]);
+    expect(nextPaymentOnOrAfter(resumed, '2026-03-10')).toBe('2026-05-20');
+  });
+
+  it('counts from the resume day, not the old one', () => {
+    expect(nextPaymentOnOrAfter(resumed, '2027-01-01')).toBe('2027-01-20');
+  });
+
+  it('keeps the old cycle for charges before a plan change', () => {
+    expect(chargesBetween(switched, '2026-01-01', '2027-12-31')).toEqual([
+      { date: '2026-01-10', amount: 1000, cycle: month },
+      { date: '2026-02-10', amount: 1000, cycle: month },
+      { date: '2026-03-10', amount: 1000, cycle: month },
+      { date: '2026-04-01', amount: 10000, cycle: year },
+      { date: '2027-04-01', amount: 10000, cycle: year },
+    ]);
+  });
+
+  it('knows which plan and status each day is in', () => {
+    expect(cycleOn(switched, '2026-03-31')).toEqual(month);
+    expect(cycleOn(switched, '2026-04-01')).toEqual(year);
+    expect(stoppedSince(resumed, '2026-04-01')).toBe('2026-03-10');
+    expect(stoppedSince(resumed, '2026-05-20')).toBeNull();
+    expect(stoppedSince(switched, '2026-04-01')).toBeNull();
+  });
+
+  it('follows a plan change to find when it ends', () => {
+    const ending: Billing = { ...switched, periods: [switched.periods[0], { ...switched.periods[1], end: '2027-04-01' }] };
+    expect(endsAfter(ending, '2026-02-01')).toBe('2027-04-01');
+    expect(endsAfter(switched, '2026-02-01')).toBeNull();
+  });
+
+  it('checks where a new period can start', () => {
+    expect(newPeriodProblem(resumed, 'resume', '2026-06-01')).toMatch("hasn't been cancelled");
+    expect(newPeriodProblem(simpleBilling({ ...monthlyPlan, cancelledOn: '2026-03-01' }), 'resume', '2026-02-01')).toMatch('on or after');
+    expect(newPeriodProblem(simpleBilling({ ...monthlyPlan, cancelledOn: '2026-03-01' }), 'resume', '2026-03-01')).toBeNull();
+    expect(newPeriodProblem(monthly, 'change', '2026-01-31')).toMatch('after the current plan started');
+    expect(newPeriodProblem(monthly, 'change', '2026-06-01')).toBeNull();
   });
 });

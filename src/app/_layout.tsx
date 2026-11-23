@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 
 import { DevVariantLabel } from '@/components/dev-variant-label';
 import { ReminderScheduler } from '@/components/reminder-scheduler';
+import { WidgetSync } from '@/components/widget-sync';
 import { StackHeader } from '@/components/stack-header';
 import { Colors, DISPLAY_FONT_FACES } from '@/constants/theme';
 import { DATABASE_NAME, migrateDbIfNeeded } from '@/db/schema';
@@ -62,6 +63,7 @@ function RootNavigator() {
   return (
     <>
       <ReminderScheduler />
+      <WidgetSync />
       <ThemeProvider value={navigationTheme}>
         <StatusBar style="auto" />
         <Stack screenOptions={{ header: (props) => <StackHeader {...props} /> }}>
@@ -70,6 +72,7 @@ function RootNavigator() {
           <Stack.Screen name="subscription/edit" options={{ presentation: 'modal' }} />
           <Stack.Screen name="subscription/price-change" options={{ presentation: 'modal' }} />
           <Stack.Screen name="subscription/cancel" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="subscription/plan" options={{ presentation: 'modal' }} />
           <Stack.Screen name="restore" options={{ presentation: 'modal' }} />
         </Stack>
         <DevVariantLabel />

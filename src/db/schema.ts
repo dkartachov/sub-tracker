@@ -34,6 +34,29 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX price_changes_subscription ON price_changes (subscription_id, effective_date);
   `,
+  // Billing moves into periods, so a resumed subscription charges nothing while it was cancelled
+  // and a plan change keeps the old cycle for the charges before it.
+  `
+  CREATE TABLE billing_periods (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id INTEGER NOT NULL REFERENCES subscriptions (id) ON DELETE CASCADE,
+    -- The period's first charge (for a free trial, the day it converts), then every cycle after it.
+    start_date TEXT NOT NULL,
+    cycle_count INTEGER NOT NULL CHECK (cycle_count > 0),
+    cycle_unit TEXT NOT NULL CHECK (cycle_unit IN ('day', 'week', 'month', 'year')),
+    -- No charges of this period on or after this day. Null while it runs on.
+    end_date TEXT
+  );
+  CREATE INDEX billing_periods_subscription ON billing_periods (subscription_id, start_date);
+
+  INSERT INTO billing_periods (subscription_id, start_date, cycle_count, cycle_unit, end_date)
+    SELECT id, first_payment_date, cycle_count, cycle_unit, cancelled_on FROM subscriptions;
+
+  ALTER TABLE subscriptions DROP COLUMN first_payment_date;
+  ALTER TABLE subscriptions DROP COLUMN cycle_count;
+  ALTER TABLE subscriptions DROP COLUMN cycle_unit;
+  ALTER TABLE subscriptions DROP COLUMN cancelled_on;
+  `,
 ];
 
 /** The `user_version` of a fully migrated database. */

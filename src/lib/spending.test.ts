@@ -1,9 +1,10 @@
 import type { Subscription } from '@/db/subscriptions';
+import { simpleSubscription, type SimpleSubscription } from '@/test-utils/subscription';
 
 import { getOverview, monthlySpending } from './spending';
 
-function sub(overrides: Partial<Subscription>): Subscription {
-  return {
+function sub(overrides: Partial<SimpleSubscription>): Subscription {
+  return simpleSubscription({
     id: 1,
     name: 'Netflix',
     category: 'streaming',
@@ -15,7 +16,7 @@ function sub(overrides: Partial<Subscription>): Subscription {
     notes: '',
     prices: [{ amount: 1000, effectiveDate: '2026-01-10' }],
     ...overrides,
-  };
+  });
 }
 
 const TODAY = '2026-03-05';

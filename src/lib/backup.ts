@@ -8,12 +8,28 @@
 import { CATEGORIES, CATEGORY_INFO, type Category } from '@/constants/categories';
 import { nextCharge, statusOf, type Subscription } from '@/db/subscriptions';
 
-import { CYCLE_UNITS, formatCycleAdverb, monthlyEquivalent, priceOn, type CycleUnit, type PriceChange } from './billing';
+import {
+  CYCLE_UNITS,
+  cycleOn,
+  finalEnd,
+  firstPaymentDate,
+  formatCycleAdverb,
+  monthlyEquivalent,
+  priceOn,
+  type BillingPeriod,
+  type Cycle,
+  type CycleUnit,
+  type PriceChange,
+} from './billing';
 import { CURRENCIES, type Currency } from './currency';
 import { fromDateKey, toDateKey, type DateKey } from './dates';
 
-/** Changes whenever the format does, so an older app can refuse a backup it can't read. */
-export const BACKUP_VERSION = 1;
+/**
+ * Changes whenever the format does, so an older app can refuse a backup it can't read. Version 1
+ * had one billing cycle per subscription (`firstPaymentDate`, `cycle`, `cancelledOn`) where
+ * version 2 has `periods`; both restore.
+ */
+export const BACKUP_VERSION = 2;
 
 const BACKUP_APP = 'subtracker';
 
@@ -67,16 +83,50 @@ function positiveInteger(value: unknown, what: string): number {
   return value;
 }
 
-function parseSubscription(value: unknown, index: number): BackupSubscription {
+function parseCycle(cycle: unknown, label: string): Cycle {
+  if (!isObject(cycle) || !CYCLE_UNITS.includes(cycle.unit as CycleUnit)) fail(`${label} has an unknown billing cycle.`);
+  return { count: positiveInteger(cycle.count, `${label}'s billing cycle`), unit: cycle.unit as CycleUnit };
+}
+
+/** A version 2 `periods` list, checked to be in order with only the last one left open. */
+function parsePeriods(periods: unknown, label: string): BillingPeriod[] {
+  if (!Array.isArray(periods) || periods.length === 0) fail(`${label} has no billing.`);
+  const parsed = periods.map((period, i): BillingPeriod => {
+    if (!isObject(period)) fail(`${label}'s billing period ${i + 1} is unreadable.`);
+    return {
+      start: dateKey(period.start, `${label}'s billing start`),
+      cycle: parseCycle(period.cycle, label),
+      end: period.end === null ? null : dateKey(period.end, `${label}'s billing end`),
+    };
+  });
+  parsed.forEach((period, i) => {
+    const next = parsed[i + 1];
+    if (!next) return;
+    if (period.end === null || next.start <= period.start || next.start < period.end) {
+      fail(`${label}'s billing periods overlap.`);
+    }
+  });
+  return parsed;
+}
+
+function parseSubscription(value: unknown, index: number, version: number): BackupSubscription {
   const where = `Subscription ${index + 1}`;
   if (!isObject(value)) fail(`${where} is unreadable.`);
-  const { name, category, cycle, firstPaymentDate, isTrial, cancelledOn, reminderDaysBefore, notes, prices } = value;
+  const { name, category, isTrial, reminderDaysBefore, notes, prices } = value;
 
   if (typeof name !== 'string' || name.trim() === '') fail(`${where} has no name.`);
   const label = `“${name}”`;
   if (!CATEGORIES.includes(category as Category)) fail(`${label} has an unknown category.`);
-  if (!isObject(cycle) || !CYCLE_UNITS.includes(cycle.unit as CycleUnit)) fail(`${label} has an unknown billing cycle.`);
-  const count = positiveInteger(cycle.count, `${label}'s billing cycle`);
+  const periods: BillingPeriod[] =
+    version === 1
+      ? [
+          {
+            start: dateKey(value.firstPaymentDate, `${label}'s first payment`),
+            cycle: parseCycle(value.cycle, label),
+            end: value.cancelledOn === null ? null : dateKey(value.cancelledOn, `${label}'s cancellation`),
+          },
+        ]
+      : parsePeriods(value.periods, label);
   if (typeof isTrial !== 'boolean') fail(`${label} doesn't say whether it's a trial.`);
   if (reminderDaysBefore !== null && (typeof reminderDaysBefore !== 'number' || !Number.isInteger(reminderDaysBefore) || reminderDaysBefore < 0)) {
     fail(`${label} has an unreadable reminder.`);
@@ -100,10 +150,8 @@ function parseSubscription(value: unknown, index: number): BackupSubscription {
   return {
     name: name.trim(),
     category: category as Category,
-    cycle: { count, unit: cycle.unit as CycleUnit },
-    firstPaymentDate: dateKey(firstPaymentDate, `${label}'s first payment`),
     isTrial,
-    cancelledOn: cancelledOn === null ? null : dateKey(cancelledOn, `${label}'s cancellation`),
+    periods,
     reminderDaysBefore: reminderDaysBefore as number | null,
     notes,
     prices: parsedPrices,
@@ -119,7 +167,8 @@ export function parseBackup(text: string): Backup {
     fail("This isn't a Subtracker backup. Paste the whole text you exported, from the first { to the last }.");
   }
   if (!isObject(data) || data.app !== BACKUP_APP) fail("This isn't a Subtracker backup.");
-  if (data.version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
+  const { version } = data;
+  if (version !== 1 && version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
   if (!CURRENCIES.includes(data.currency as Currency)) fail('This backup has an unknown currency.');
   if (!Array.isArray(data.subscriptions)) fail('This backup has no subscriptions list.');
 
@@ -128,7 +177,7 @@ export function parseBackup(text: string): Backup {
     version: BACKUP_VERSION,
     exportedAt: typeof data.exportedAt === 'string' ? data.exportedAt : '',
     currency: data.currency as Currency,
-    subscriptions: data.subscriptions.map(parseSubscription),
+    subscriptions: data.subscriptions.map((sub, i) => parseSubscription(sub, i, version)),
   };
 }
 
@@ -160,16 +209,17 @@ export function subscriptionsCsv(subs: Subscription[], currency: Currency, today
   const rows = subs.map((sub) => {
     const next = nextCharge(sub, today);
     const price = next?.amount ?? priceOn(sub.prices, today);
+    const cycle = next?.cycle ?? cycleOn(sub, today);
     return [
       sub.name,
       CATEGORY_INFO[sub.category].label,
       statusOf(sub, today),
       csvAmount(price),
-      formatCycleAdverb(sub.cycle),
-      csvAmount(monthlyEquivalent(price, sub.cycle)),
+      formatCycleAdverb(cycle),
+      csvAmount(monthlyEquivalent(price, cycle)),
       next?.date ?? '',
-      sub.firstPaymentDate,
-      sub.cancelledOn ?? '',
+      firstPaymentDate(sub),
+      finalEnd(sub) ?? '',
       sub.notes,
     ];
   });

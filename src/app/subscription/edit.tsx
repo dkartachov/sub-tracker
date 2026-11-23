@@ -6,6 +6,7 @@ import { StyleSheet, Switch, View } from 'react-native';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { ChipGroup } from '@/components/chip-group';
+import { CycleField, parseCycle } from '@/components/cycle-field';
 import { DateField } from '@/components/date-field';
 import { Field, TextField } from '@/components/field';
 import { FormScreen } from '@/components/form-screen';
@@ -23,9 +24,9 @@ import {
   type SubscriptionInput,
 } from '@/db/subscriptions';
 import { useTheme } from '@/hooks/use-theme';
-import { CYCLE_UNITS, type CycleUnit } from '@/lib/billing';
+import { firstPaymentDate as firstPaymentOf, lastPeriod, type CycleUnit } from '@/lib/billing';
 import { currencyDecimals, moneyPlaceholder, parseMoney, useCurrency } from '@/lib/currency';
-import { todayKey } from '@/lib/dates';
+import { formatDateKey, todayKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
 import { requestNotificationPermission } from '@/lib/renewal-reminders';
 
@@ -56,9 +57,12 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
 
   const [name, setName] = useState(existing?.name ?? '');
   const [priceText, setPriceText] = useState('');
-  const [cycleCountText, setCycleCountText] = useState(String(existing?.cycle.count ?? 1));
-  const [cycleUnit, setCycleUnit] = useState<CycleUnit>(existing?.cycle.unit ?? 'month');
-  const [firstPaymentDate, setFirstPaymentDate] = useState(existing?.firstPaymentDate ?? todayKey());
+  // With several billing periods (after a resume or plan change), the form edits the first one's
+  // start and the latest one's cycle.
+  const existingCycle = existing && lastPeriod(existing).cycle;
+  const [cycleCountText, setCycleCountText] = useState(String(existingCycle?.count ?? 1));
+  const [cycleUnit, setCycleUnit] = useState<CycleUnit>(existingCycle?.unit ?? 'month');
+  const [firstPaymentDate, setFirstPaymentDate] = useState(existing ? firstPaymentOf(existing) : todayKey());
   const [isTrial, setIsTrial] = useState(existing?.isTrial ?? false);
   const [category, setCategory] = useState<Category>(existing?.category ?? 'streaming');
   const [reminder, setReminder] = useState<ReminderOption>(
@@ -68,9 +72,12 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const [saving, setSaving] = useState(false);
 
   const price = parseMoney(priceText, currency);
-  const cycleCount = Number(cycleCountText);
-  const cycleValid = Number.isInteger(cycleCount) && cycleCount >= 1 && cycleCount <= 99;
-  const valid = name.trim() !== '' && cycleValid && (existing !== undefined || price !== null);
+  const cycle = parseCycle(cycleCountText, cycleUnit);
+  const multiplePeriods = (existing?.periods.length ?? 0) > 1;
+  // The first period has to keep at least its first charge before the next one takes over.
+  const firstPeriodEnd = multiplePeriods ? existing!.periods[0].end : null;
+  const firstPaymentValid = firstPeriodEnd === null || firstPaymentDate < firstPeriodEnd;
+  const valid = name.trim() !== '' && cycle !== null && firstPaymentValid && (existing !== undefined || price !== null);
   const suggestions = existing ? [] : suggestTemplates(name);
 
   const applyTemplate = (template: SubscriptionTemplate) => {
@@ -81,12 +88,12 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   };
 
   const save = async () => {
-    if (!valid) return;
+    if (!valid || !cycle) return;
     setSaving(true);
     const input: SubscriptionInput = {
       name: name.trim(),
       category,
-      cycle: { count: cycleCount, unit: cycleUnit },
+      cycle,
       firstPaymentDate,
       isTrial,
       reminderDaysBefore: reminder === -1 ? null : reminder,
@@ -138,24 +145,18 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
       )}
 
       <Field label="Billed every">
-        <View style={styles.cycleRow}>
-          <TextField
-            value={cycleCountText}
-            onChangeText={setCycleCountText}
-            keyboardType="number-pad"
-            maxLength={2}
-            style={styles.cycleCount}
-            selectTextOnFocus
-          />
-          <View style={styles.cycleUnits}>
-            <ChipGroup
-              options={CYCLE_UNITS}
-              value={cycleUnit}
-              onChange={setCycleUnit}
-              label={(unit) => (cycleCount === 1 ? unit : `${unit}s`)}
-            />
-          </View>
-        </View>
+        <CycleField
+          countText={cycleCountText}
+          onCountTextChange={setCycleCountText}
+          unit={cycleUnit}
+          onUnitChange={setCycleUnit}
+        />
+        {multiplePeriods && (
+          <ThemedText type="small" themeColor="textSecondary">
+            The current plan&apos;s. To switch plan from a given day and keep past charges as they were, use
+            “Change plan” instead.
+          </ThemedText>
+        )}
       </Field>
 
       <View style={styles.switchRow}>
@@ -178,10 +179,17 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
 
       <Field label={isTrial ? 'Trial ends, first charge on' : 'First payment'}>
         <DateField value={firstPaymentDate} onChange={setFirstPaymentDate} defaultDate={new Date()} />
-        {!isTrial && (
-          <ThemedText type="small" themeColor="textSecondary">
-            Any past charge works: renewals are counted on from it.
+        {!firstPaymentValid ? (
+          <ThemedText type="small" themeColor="danger">
+            Pick a day before {formatDateKey(firstPeriodEnd!)}, when its billing first changed.
           </ThemedText>
+        ) : (
+          !isTrial &&
+          !multiplePeriods && (
+            <ThemedText type="small" themeColor="textSecondary">
+              Any past charge works: renewals are counted on from it.
+            </ThemedText>
+          )
         )}
       </Field>
 
@@ -216,18 +224,6 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
 const styles = StyleSheet.create({
   suggestions: {
     gap: Spacing.two,
-  },
-  cycleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.twoAndHalf,
-  },
-  cycleCount: {
-    width: 64,
-    textAlign: 'center',
-  },
-  cycleUnits: {
-    flex: 1,
   },
   switchRow: {
     flexDirection: 'row',

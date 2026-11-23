@@ -36,7 +36,30 @@
           "icon": "./assets/images/notification-icon.png",
           "color": "#4F46E5"
         }
-      ]
+      ],
+      [
+        "expo-widgets",
+        {
+          "enableAndroid": true,
+          "widgets": [
+            {
+              "name": "UpcomingWidget",
+              "displayName": "Next charges",
+              "description": "Your monthly total and the next few charges.",
+              "android": {
+                "targetCellWidth": 4,
+                "targetCellHeight": 2,
+                "minWidth": 250,
+                "minHeight": 110,
+                "resizeMode": "both",
+                "initialLayout": "./src/widgets/upcoming-widget.tsx"
+              }
+            }
+          ]
+        }
+      ],
+      "expo-sharing",
+      "expo-document-picker"
     ],
     "experiments": {
       "typedRoutes": true,

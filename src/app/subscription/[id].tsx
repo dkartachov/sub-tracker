@@ -17,6 +17,7 @@ import { CATEGORY_INFO } from '@/constants/categories';
 import { Spacing } from '@/constants/theme';
 import {
   currentPrice,
+  deletePeriod,
   deletePriceChange,
   deleteSubscription,
   endsOn,
@@ -29,7 +30,19 @@ import {
 } from '@/db/subscriptions';
 import { useTheme } from '@/hooks/use-theme';
 import { useToday } from '@/hooks/use-today';
-import { chargesBetween, formatCycle, formatCycleAdverb, monthlyEquivalent, spentBetween } from '@/lib/billing';
+import {
+  chargeOn,
+  chargesBetween,
+  cycleOn,
+  finalEnd,
+  firstPaymentDate,
+  formatCycle,
+  formatCycleAdverb,
+  monthlyEquivalent,
+  spentBetween,
+  stoppedSince,
+  type BillingPeriod,
+} from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
 import { addDays, daysBetween, formatDateKey, formatShortDate, formatUpcomingDay, type DateKey } from '@/lib/dates';
 import { RECENTLY_CONVERTED_DAYS } from '@/lib/spending';
@@ -63,9 +76,18 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const next = nextCharge(sub, today);
   const ends = endsOn(sub, today);
   const price = next?.amount ?? currentPrice(sub, today);
+  const cycle = next?.cycle ?? cycleOn(sub, today);
+  const stopped = stoppedSince(sub, today);
+  const cancelledOn = finalEnd(sub);
+  const firstPayment = firstPaymentDate(sub);
   const reminder = sub.reminderDaysBefore;
 
   const editCancellation = () => router.push({ pathname: '/subscription/cancel', params: { id: String(sub.id) } });
+  const startPlan = (kind: 'resume' | 'change') =>
+    router.push({ pathname: '/subscription/plan', params: { id: String(sub.id), kind } });
+  // A cancellation still ahead is simply undone; after it, resuming starts charging again from a chosen day.
+  const resume = () => (cancelledOn !== null && cancelledOn > today ? setCancelled(db, sub.id, null) : startPlan('resume'));
+  const canChangePlan = cancelledOn === null || cancelledOn > today;
 
   const remove = () =>
     Alert.alert(`Delete ${sub.name}?`, 'Its price history goes too, and it drops out of what you spent. To keep that, mark it cancelled instead.', [
@@ -99,27 +121,37 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
         title={sub.name}
         eyebrow={CATEGORY_INFO[sub.category].label}
         eyebrowColor="textSecondary"
-        subtitle={`${money(price)} per ${formatCycle(sub.cycle)}`}
+        subtitle={`${money(price)} per ${formatCycle(cycle)}`}
       />
 
       <TrialNotice sub={sub} today={today} />
 
-      <Section title="Billing">
+      <Section
+        title="Billing"
+        action={
+          canChangePlan && (
+            <PressableScale accessibilityRole="button" hitSlop={8} onPress={() => startPlan('change')}>
+              <ThemedText type="smallBold" themeColor="tint">
+                Change plan
+              </ThemedText>
+            </PressableScale>
+          )
+        }>
         {next && (
           <InfoRow
-            label={status === 'trial' ? 'Trial ends' : 'Next charge'}
+            label={status === 'trial' ? 'Trial ends' : status === 'cancelled' ? 'Resumes' : 'Next charge'}
             value={`${formatShortDate(next.date, today)}, ${formatUpcomingDay(next.date, today)}`}
           />
         )}
         {ends && <InfoRow label="Ends" value={`${formatShortDate(ends, today)}, ${formatUpcomingDay(ends, today)}`} />}
-        {status === 'cancelled' && <InfoRow label="Cancelled" value={formatDateKey(sub.cancelledOn!)} />}
-        <InfoRow label="Billed" value={formatCycleAdverb(sub.cycle)} />
-        {sub.cycle.unit !== 'month' || sub.cycle.count !== 1 ? (
-          <InfoRow label="Per month" value={`≈ ${money(monthlyEquivalent(price, sub.cycle))}`} />
+        {stopped && <InfoRow label="Cancelled" value={formatDateKey(stopped)} />}
+        <InfoRow label="Billed" value={formatCycleAdverb(cycle)} />
+        {cycle.unit !== 'month' || cycle.count !== 1 ? (
+          <InfoRow label="Per month" value={`≈ ${money(monthlyEquivalent(price, cycle))}`} />
         ) : (
           <InfoRow label="Per year" value={money(price * 12)} />
         )}
-        <InfoRow label={sub.isTrial ? 'First charge' : 'First payment'} value={formatDateKey(sub.firstPaymentDate)} />
+        <InfoRow label={sub.isTrial ? 'First charge' : 'First payment'} value={formatDateKey(firstPayment)} />
         <InfoRow
           label="Reminder"
           value={reminder === null ? 'Off' : reminder === 0 ? 'On the day' : `${reminder} ${reminder === 1 ? 'day' : 'days'} before`}
@@ -128,10 +160,12 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
 
       <Section title="Spent">
         <InfoRow label={`In ${today.slice(0, 4)}`} value={money(spentBetween(sub, `${today.slice(0, 4)}-01-01`, today))} />
-        <InfoRow label="All time" value={money(spentBetween(sub, sub.firstPaymentDate, today))} />
+        <InfoRow label="All time" value={money(spentBetween(sub, firstPayment, today))} />
       </Section>
 
       <ChargeHistory sub={sub} today={today} />
+
+      <BillingHistory sub={sub} today={today} />
 
       <Section
         title="Price history"
@@ -182,9 +216,9 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
           variant="secondary"
           onPress={() => router.push({ pathname: '/subscription/edit', params: { id: String(sub.id) } })}
         />
-        {sub.cancelledOn ? (
+        {cancelledOn ? (
           <>
-            <Button title="Resume" variant="secondary" onPress={() => setCancelled(db, sub.id, null)} />
+            <Button title="Resume" variant="secondary" onPress={resume} />
             <Button title="Change cancellation" variant="secondary" onPress={editCancellation} />
           </>
         ) : (
@@ -205,20 +239,20 @@ function TrialNotice({ sub, today }: { sub: Subscription; today: DateKey }) {
   const currency = useCurrency();
   if (!sub.isTrial || trialWontConvert(sub)) return null;
 
-  const firstCharge = chargesBetween(sub, sub.firstPaymentDate, sub.firstPaymentDate)[0];
-  if (!firstCharge) return null;
+  const firstPayment = firstPaymentDate(sub);
+  const firstCharge = chargeOn(sub, firstPayment);
   const amount = formatMoney(firstCharge.amount, currency);
-  const daysLeft = daysBetween(today, sub.firstPaymentDate);
+  const daysLeft = daysBetween(today, firstPayment);
 
   let title: string;
   let body: string;
   if (daysLeft > 0) {
-    const lastFreeDay = addDays(sub.firstPaymentDate, -1);
+    const lastFreeDay = addDays(firstPayment, -1);
     title = daysLeft === 1 ? 'Last free day: cancel today to pay nothing' : `${daysLeft} free days left`;
-    body = `It's free until ${formatDateKey(lastFreeDay)}. Unless you cancel by then, ${amount} is charged on ${formatDateKey(sub.firstPaymentDate)}.`;
-  } else if (sub.cancelledOn === null && -daysLeft < RECENTLY_CONVERTED_DAYS) {
+    body = `It's free until ${formatDateKey(lastFreeDay)}. Unless you cancel by then, ${amount} is charged on ${formatDateKey(firstPayment)}.`;
+  } else if (sub.periods.length === 1 && sub.periods[0].end === null && -daysLeft < RECENTLY_CONVERTED_DAYS) {
     title = 'Your free trial has ended';
-    body = `It turned paid ${daysLeft === 0 ? 'today' : `on ${formatDateKey(sub.firstPaymentDate)}`}, at ${amount} per ${formatCycle(sub.cycle)}. Cancel it if you didn't mean to keep it.`;
+    body = `It turned paid ${daysLeft === 0 ? 'today' : `on ${formatDateKey(firstPayment)}`}, at ${amount} per ${formatCycle(firstCharge.cycle)}. Cancel it if you didn't mean to keep it.`;
   } else {
     return null;
   }
@@ -237,7 +271,7 @@ function TrialNotice({ sub, today }: { sub: Subscription; today: DateKey }) {
 function ChargeHistory({ sub, today }: { sub: Subscription; today: DateKey }) {
   const currency = useCurrency();
   const [showAll, setShowAll] = useState(false);
-  const charges = chargesBetween(sub, sub.firstPaymentDate, today).reverse();
+  const charges = chargesBetween(sub, firstPaymentDate(sub), today).reverse();
   if (charges.length === 0) return null;
   const shown = showAll ? charges : charges.slice(0, CHARGES_SHOWN);
 
@@ -256,6 +290,64 @@ function ChargeHistory({ sub, today }: { sub: Subscription; today: DateKey }) {
       {shown.map((charge) => (
         <InfoRow key={charge.date} label={formatDateKey(charge.date)} value={formatMoney(charge.amount, currency)} />
       ))}
+    </Section>
+  );
+}
+
+/**
+ * The plans it's been on and the breaks between them, newest first, once there's more than one.
+ * Long pressing a later period removes it: undoing a plan change, or a resume.
+ */
+function BillingHistory({ sub, today }: { sub: Subscription; today: DateKey }) {
+  const db = useSQLiteContext();
+  if (sub.periods.length < 2) return null;
+
+  const describe = (period: BillingPeriod, i: number) => {
+    const next = sub.periods[i + 1];
+    const from = `${period.start > today ? 'From' : 'Since'} ${formatDateKey(period.start)}`;
+    if (next && period.end === next.start) return `${from}, until the plan changed`;
+    if (period.end === null) return from;
+    const ended = `${from}, cancelled ${formatDateKey(period.end)}`;
+    return next ? `${ended}, resumed ${formatDateKey(next.start)}` : ended;
+  };
+
+  const remove = (period: BillingPeriod, i: number) => {
+    const previous = sub.periods[i - 1];
+    const what = previous.end === period.start ? 'plan change' : 'resume';
+    Alert.alert(
+      `Remove this ${what}?`,
+      what === 'resume'
+        ? `It goes back to being cancelled from ${formatDateKey(previous.end!)}. Price changes stay.`
+        : 'The plan before it carries on instead. Price changes stay.',
+      [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => deletePeriod(db, sub.id, period.start) },
+      ]
+    );
+  };
+
+  const periods = sub.periods.map((period, i) => ({ period, i })).reverse();
+
+  return (
+    <Section title="Billing history">
+      {periods.map(({ period, i }) => (
+        <PressableScale
+          key={period.start}
+          disabled={i === 0}
+          accessibilityHint={i === 0 ? undefined : 'Long press to remove'}
+          onLongPress={() => remove(period, i)}
+          style={styles.priceRow}>
+          <View style={styles.priceText}>
+            <ThemedText type="smallBold">{formatCycleAdverb(period.cycle)}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {describe(period, i)}
+            </ThemedText>
+          </View>
+        </PressableScale>
+      ))}
+      <ThemedText type="small" themeColor="textSecondary">
+        Long press a later plan or a resume to remove it.
+      </ThemedText>
     </Section>
   );
 }

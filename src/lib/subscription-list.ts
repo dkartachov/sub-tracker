@@ -2,7 +2,7 @@
 import { CATEGORY_INFO } from '@/constants/categories';
 import { currentPrice, endsOn, nextCharge, statusOf, type Subscription } from '@/db/subscriptions';
 
-import { monthlyEquivalent } from './billing';
+import { cycleOn, firstPaymentDate, monthlyEquivalent, stoppedSince, type Cycle } from './billing';
 import type { DateKey } from './dates';
 import { storedSetting } from './stored-setting';
 
@@ -23,11 +23,15 @@ export const useSubscriptionSort = sortSetting.use;
 
 export type ListedSubscription = {
   sub: Subscription;
-  next: { date: DateKey; amount: number; isTrialEnd: boolean } | null;
+  next: { date: DateKey; amount: number; cycle: Cycle; isTrialEnd: boolean } | null;
   /** When one cancelled for a later day stops. */
   ends: DateKey | null;
   /** What it charges per cycle: the next charge's price, else today's. */
   price: number;
+  /** The cycle `price` is per: the next charge's, else today's. */
+  cycle: Cycle;
+  /** For a cancelled one, when it was cancelled. */
+  stopped: DateKey | null;
 };
 
 /** Whether every word typed is in the name, notes or category, ignoring case. */
@@ -55,9 +59,11 @@ export function arrangeSubscriptions(subs: Subscription[], today: DateKey, sort:
       const next = nextCharge(sub, today);
       return {
         sub,
-        next: next && { ...next, isTrialEnd: statusOf(sub, today) === 'trial' && next.date === sub.firstPaymentDate },
+        next: next && { ...next, isTrialEnd: statusOf(sub, today) === 'trial' && next.date === firstPaymentDate(sub) },
         ends: endsOn(sub, today),
         price: next?.amount ?? currentPrice(sub, today),
+        cycle: next?.cycle ?? cycleOn(sub, today),
+        stopped: stoppedSince(sub, today),
       };
     });
 
@@ -67,14 +73,14 @@ export function arrangeSubscriptions(subs: Subscription[], today: DateKey, sort:
   if (sort === 'next') {
     running.sort((a, b) => (a.next?.date ?? '9999').localeCompare(b.next?.date ?? '9999') || byName(a, b));
   } else if (sort === 'cost') {
-    const perMonth = (item: ListedSubscription) => (item.next ? monthlyEquivalent(item.price, item.sub.cycle) : 0);
+    const perMonth = (item: ListedSubscription) => (item.next ? monthlyEquivalent(item.price, item.cycle) : 0);
     running.sort((a, b) => perMonth(b) - perMonth(a) || byName(a, b));
   } else {
     running.sort(byName);
   }
 
   if (sort === 'name') cancelled.sort(byName);
-  else cancelled.sort((a, b) => (b.sub.cancelledOn ?? '').localeCompare(a.sub.cancelledOn ?? '') || byName(a, b));
+  else cancelled.sort((a, b) => (b.stopped ?? '').localeCompare(a.stopped ?? '') || byName(a, b));
 
   return { running, cancelled };
 }

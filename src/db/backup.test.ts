@@ -22,7 +22,10 @@ it('replaces everything with the backup, price history included', async () => {
       ...gym,
       name: 'Netflix',
       category: 'streaming',
-      cancelledOn: '2026-05-01',
+      periods: [
+        { start: '2026-01-01', cycle: { count: 1, unit: 'month' }, end: '2026-03-01' },
+        { start: '2026-04-01', cycle: { count: 1, unit: 'year' }, end: '2026-05-01' },
+      ],
       prices: [
         { amount: 1299, effectiveDate: '2026-01-01' },
         { amount: 1499, effectiveDate: '2026-03-01' },
@@ -31,8 +34,15 @@ it('replaces everything with the backup, price history included', async () => {
   ]);
 
   const subs = await getSubscriptions(db);
-  expect(subs.map((s) => [s.name, s.cancelledOn, s.prices.map((p) => p.amount)])).toEqual([
-    ['Netflix', '2026-05-01', [1299, 1499]],
+  expect(subs.map((s) => [s.name, s.periods.map((p) => [p.start, p.cycle.unit, p.end]), s.prices.map((p) => p.amount)])).toEqual([
+    [
+      'Netflix',
+      [
+        ['2026-01-01', 'month', '2026-03-01'],
+        ['2026-04-01', 'year', '2026-05-01'],
+      ],
+      [1299, 1499],
+    ],
   ]);
 });
 
@@ -42,7 +52,13 @@ it('keeps what was there when a row fails', async () => {
 
   // A zero price breaks the table's CHECK, halfway through.
   await expect(
-    replaceAllSubscriptions(db, [{ ...gym, cancelledOn: null, prices: [{ amount: 0, effectiveDate: '2026-01-01' }] }])
+    replaceAllSubscriptions(db, [
+      {
+        ...gym,
+        periods: [{ start: '2026-01-01', cycle: gym.cycle, end: null }],
+        prices: [{ amount: 0, effectiveDate: '2026-01-01' }],
+      },
+    ])
   ).rejects.toThrow();
 
   expect((await getSubscriptions(db)).map((s) => s.name)).toEqual(['Gym']);

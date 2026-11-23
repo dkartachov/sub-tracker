@@ -80,7 +80,7 @@ export default function SubscriptionsScreen() {
 
       {running.length > 0 && (
         <Section title={`Running · ${running.length}`}>
-          {running.map(({ sub, next, ends, price }) => (
+          {running.map(({ sub, next, ends, price, cycle }) => (
             <SubscriptionRow
               key={sub.id}
               sub={sub}
@@ -93,7 +93,7 @@ export default function SubscriptionsScreen() {
                     : ''
               }
               amount={money(price)}
-              amountDetail={`per ${formatCycle(sub.cycle)}`}
+              amountDetail={`per ${formatCycle(cycle)}`}
             />
           ))}
         </Section>
@@ -101,14 +101,18 @@ export default function SubscriptionsScreen() {
 
       {cancelled.length > 0 && (
         <Section title={`Cancelled · ${cancelled.length}`}>
-          {cancelled.map(({ sub, price }) => (
+          {cancelled.map(({ sub, next, stopped, price, cycle }) => (
             <SubscriptionRow
               key={sub.id}
               sub={sub}
               today={today}
-              detail={`Cancelled ${formatShortDate(sub.cancelledOn!, today)}`}
+              detail={
+                next
+                  ? `Cancelled, resumes ${formatUpcomingDay(next.date, today)}`
+                  : `Cancelled ${formatShortDate(stopped!, today)}`
+              }
               amount={money(price)}
-              amountDetail={`per ${formatCycle(sub.cycle)}`}
+              amountDetail={`per ${formatCycle(cycle)}`}
             />
           ))}
         </Section>

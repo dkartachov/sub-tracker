@@ -80,14 +80,14 @@ export default function OverviewScreen() {
 
       {overview.recentlyConverted.length > 0 && (
         <Section title="Trials now paid">
-          {overview.recentlyConverted.map(({ sub, date, amount }) => (
+          {overview.recentlyConverted.map(({ sub, date, amount, cycle }) => (
             <SubscriptionRow
               key={sub.id}
               sub={sub}
               today={today}
               detail={`Trial ended ${daysAgo(daysBetween(date, today))}`}
               amount={money(amount)}
-              amountDetail={`per ${formatCycle(sub.cycle)}`}
+              amountDetail={`per ${formatCycle(cycle)}`}
             />
           ))}
         </Section>

@@ -10,7 +10,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import CancelScreen from '@/app/subscription/cancel';
 import EditSubscriptionScreen from '@/app/subscription/edit';
 import PriceChangeScreen from '@/app/subscription/price-change';
+import PlanScreen from '@/app/subscription/plan';
 import { addPriceChange, createSubscription, getSubscriptions, setCancelled, type SubscriptionInput } from '@/db/subscriptions';
+import { finalEnd } from '@/lib/billing';
 import { setCurrency } from '@/lib/currency';
 import { addDays, todayKey } from '@/lib/dates';
 import { createTestDb } from '@/test-utils/sqlite';
@@ -74,7 +76,7 @@ it('adds a subscription from a suggestion, with a typed price', async () => {
 
   await waitFor(() => expect(router.back).toHaveBeenCalled());
   const [sub] = await getSubscriptions(mockDb);
-  expect(sub).toMatchObject({ name: 'Spotify', category: 'music', cycle: { count: 1, unit: 'month' } });
+  expect(sub).toMatchObject({ name: 'Spotify', category: 'music', periods: [{ cycle: { count: 1, unit: 'month' } }] });
   expect(sub.prices.map((p) => p.amount)).toEqual([1099]);
 });
 
@@ -121,8 +123,8 @@ it('cancels from today by default', async () => {
 
   await waitFor(() => expect(router.back).toHaveBeenCalled());
   const [sub] = await getSubscriptions(mockDb);
-  expect(sub.cancelledOn).not.toBeNull();
-  expect(sub.cancelledOn! >= '2026-01-15').toBe(true);
+  expect(finalEnd(sub)).not.toBeNull();
+  expect(finalEnd(sub)! >= '2026-01-15').toBe(true);
 });
 
 it('cancels when the paid period ends', async () => {
@@ -137,7 +139,7 @@ it('cancels when the paid period ends', async () => {
   await waitFor(() => expect(router.back).toHaveBeenCalled());
   const [sub] = await getSubscriptions(mockDb);
   // The day it would charge next: the 15th of a month after today.
-  expect(sub.cancelledOn).toMatch(/^\d{4}-\d{2}-15$/);
+  expect(finalEnd(sub)).toMatch(/^\d{4}-\d{2}-15$/);
 });
 
 it("keeps a trial's first charge when cancelling on the day it converts", async () => {
@@ -155,7 +157,7 @@ it("keeps a trial's first charge when cancelling on the day it converts", async 
 
   await waitFor(() => expect(router.back).toHaveBeenCalled());
   const [sub] = await getSubscriptions(mockDb);
-  expect(sub.cancelledOn! > today).toBe(true);
+  expect(finalEnd(sub)! > today).toBe(true);
 });
 
 it("names a trial's first charge at the price on the day it converts", async () => {
@@ -177,4 +179,41 @@ it("reopens a trial's cancellation on its conversion day as another day", async 
 
   expect(await screen.findByText(/A past day if you cancelled/)).toBeTruthy();
   expect(screen.queryByText(/You keep access until/)).toBeNull();
+});
+
+it('resumes a cancelled subscription from today at a new price', async () => {
+  const id = await createSubscription(mockDb, netflix, 999);
+  await setCancelled(mockDb, id, '2026-02-01');
+  mockParams = { id: String(id), kind: 'resume' };
+  await renderScreen(<PlanScreen />);
+
+  await fireEvent.changeText(await screen.findByDisplayValue('9.99'), '11.99');
+  await fireEvent.press(screen.getByText('Resume'));
+
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  const [sub] = await getSubscriptions(mockDb);
+  const today = todayKey();
+  expect(sub.periods.map((p) => [p.start, p.end])).toEqual([
+    ['2026-01-15', '2026-02-01'],
+    [today, null],
+  ]);
+  expect(sub.prices.at(-1)).toEqual({ amount: 1199, effectiveDate: today });
+});
+
+it('changes plan to yearly, and not to the plan it already has', async () => {
+  const id = await createSubscription(mockDb, netflix, 999);
+  mockParams = { id: String(id), kind: 'change' };
+  await renderScreen(<PlanScreen />);
+
+  expect(await screen.findByText(/That's the current plan/)).toBeTruthy();
+  await fireEvent.press(screen.getByText('year'));
+  await fireEvent.changeText(screen.getByDisplayValue('9.99'), '99');
+  await fireEvent.press(screen.getAllByText('Change plan').at(-1)!);
+
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  const [sub] = await getSubscriptions(mockDb);
+  expect(sub.periods).toHaveLength(2);
+  expect(sub.periods[1]).toMatchObject({ cycle: { count: 1, unit: 'year' }, end: null });
+  expect(sub.periods[0].end).toBe(sub.periods[1].start);
+  expect(sub.prices.at(-1)!.amount).toBe(9900);
 });

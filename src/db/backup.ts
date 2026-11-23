@@ -11,22 +11,29 @@ export async function replaceAllSubscriptions(db: SQLiteDatabase, subs: BackupSu
   // Exclusive, so nothing else on the connection (a reminder sync, say) can read it half restored.
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync('DELETE FROM price_changes');
+    await txn.runAsync('DELETE FROM billing_periods');
     await txn.runAsync('DELETE FROM subscriptions');
     for (const sub of subs) {
       const result = await txn.runAsync(
-        `INSERT INTO subscriptions (name, category, cycle_count, cycle_unit, first_payment_date, is_trial,
-          cancelled_on, reminder_days_before, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO subscriptions (name, category, is_trial, reminder_days_before, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
         sub.name,
         sub.category,
-        sub.cycle.count,
-        sub.cycle.unit,
-        sub.firstPaymentDate,
         sub.isTrial ? 1 : 0,
-        sub.cancelledOn,
         sub.reminderDaysBefore,
         sub.notes,
         createdAt
       );
+      for (const period of sub.periods) {
+        await txn.runAsync(
+          'INSERT INTO billing_periods (subscription_id, start_date, cycle_count, cycle_unit, end_date) VALUES (?, ?, ?, ?, ?)',
+          result.lastInsertRowId,
+          period.start,
+          period.cycle.count,
+          period.cycle.unit,
+          period.end
+        );
+      }
       for (const price of sub.prices) {
         await txn.runAsync(
           'INSERT INTO price_changes (subscription_id, amount, effective_date) VALUES (?, ?, ?)',

@@ -12,7 +12,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getSubscriptions, type Subscription } from '@/db/subscriptions';
 
-import { paymentsBetween, priceOn } from './billing';
+import { firstPaymentDate, paymentsBetween, priceOn } from './billing';
 import { formatMoney, getCurrency } from './currency';
 import { addDays, fromDateKey, toDateKey, type DateKey } from './dates';
 import { getReminderTime, timeKey, type TimeOfDay } from './reminder-time';
@@ -64,7 +64,7 @@ export function planReminders(
       if (date.getTime() <= now.getTime()) continue;
 
       const amount = formatMoney(priceOn(sub.prices, paymentDate), currency);
-      const isTrialEnd = sub.isTrial && paymentDate === sub.firstPaymentDate;
+      const isTrialEnd = sub.isTrial && paymentDate === firstPaymentDate(sub);
       planned.push({
         // Holds everything the notification says, so any edit replaces it with a fresh one.
         identifier: ['renewal', sub.id, paymentDate, daysBefore, timeKey(time), amount, sub.name].join('|'),
