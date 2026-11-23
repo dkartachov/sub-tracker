@@ -45,6 +45,20 @@
     "runtimeVersion": {
       "policy": "fingerprint"
     },
-    "owner": "hogos"
+    "owner": "hogos",
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "13d301eb-7b8b-48d3-850b-59b96bd73261"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/13d301eb-7b8b-48d3-850b-59b96bd73261"
+    },
+    "ios": {}
   }
 }
