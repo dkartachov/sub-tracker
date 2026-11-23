@@ -1,15 +1,22 @@
 import * as Application from 'expo-application';
 import { getPermissionsAsync, type NotificationPermissionsStatus } from 'expo-notifications';
+import { router } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useState } from 'react';
-import { AppState, Linking } from 'react-native';
+import { Alert, AppState, Linking, Share } from 'react-native';
 
 import { Button } from '@/components/button';
 import { ChipGroup } from '@/components/chip-group';
 import { Screen } from '@/components/screen';
 import { InfoRow, Section } from '@/components/section';
 import { ThemedText } from '@/components/themed-text';
-import { CURRENCIES, setCurrency, useCurrency } from '@/lib/currency';
-import { REMINDER_HOUR, requestNotificationPermission } from '@/lib/renewal-reminders';
+import { TimeField } from '@/components/time-field';
+import { getSubscriptions } from '@/db/subscriptions';
+import { createBackup, serializeBackup, subscriptionsCsv } from '@/lib/backup';
+import { CURRENCIES, getCurrency, setCurrency, useCurrency } from '@/lib/currency';
+import { todayKey } from '@/lib/dates';
+import { requestNotificationPermission } from '@/lib/renewal-reminders';
+import { formatTimeOfDay, setReminderTime, useReminderTime } from '@/lib/reminder-time';
 import {
   setThemePreference,
   THEME_PREFERENCE_LABELS,
@@ -34,6 +41,10 @@ export default function SettingsScreen() {
         <NotificationStatus />
       </Section>
 
+      <Section title="Backup">
+        <BackupActions />
+      </Section>
+
       <Section title="Appearance">
         <ChipGroup
           options={THEME_PREFERENCES}
@@ -53,6 +64,47 @@ export default function SettingsScreen() {
   );
 }
 
+/**
+ * Backups are text, shared through the share sheet (to Drive, email, a notes app) and pasted back
+ * in to restore, so they need nothing beyond what the app already has.
+ */
+function BackupActions() {
+  const db = useSQLiteContext();
+
+  const share = async (title: string, message: () => Promise<string>) => {
+    try {
+      await Share.share({ title, message: await message() }, { dialogTitle: title });
+    } catch (error) {
+      console.warn(error);
+      Alert.alert("Couldn't export", 'Something went wrong. Try again.');
+    }
+  };
+
+  return (
+    <>
+      <ThemedText type="small" themeColor="textSecondary">
+        Your subscriptions only live on this phone. Export a backup now and then and keep it somewhere safe, like
+        Drive or an email to yourself. To restore it, copy the whole text and paste it in.
+      </ThemedText>
+      <Button
+        title="Export backup"
+        variant="secondary"
+        onPress={() =>
+          share('Subtracker backup', async () => serializeBackup(createBackup(await getSubscriptions(db), getCurrency())))
+        }
+      />
+      <Button
+        title="Export spreadsheet (CSV)"
+        variant="secondary"
+        onPress={() =>
+          share('Subtracker subscriptions', async () => subscriptionsCsv(await getSubscriptions(db), getCurrency(), todayKey()))
+        }
+      />
+      <Button title="Restore a backup" variant="secondary" onPress={() => router.push('/restore')} />
+    </>
+  );
+}
+
 /** Whether reminders can show, with a way to allow them. Re-checked on returning from system settings. */
 function NotificationStatus() {
   const [status, setStatus] = useState<NotificationPermissionsStatus>();
@@ -69,15 +121,19 @@ function NotificationStatus() {
     return () => sub.remove();
   }, [refresh]);
 
-  if (!status) return null;
+  const time = useReminderTime();
 
-  const hour = new Date(2026, 0, 1, REMINDER_HOUR).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (!status) return null;
 
   if (status.granted) {
     return (
-      <ThemedText type="small" themeColor="textSecondary">
-        Reminders are on. They arrive at {hour}, as many days before a charge as you set on each subscription.
-      </ThemedText>
+      <>
+        <ThemedText type="small" themeColor="textSecondary">
+          Reminders are on. They arrive at {formatTimeOfDay(time)}, as many days before a charge as you set on each
+          subscription.
+        </ThemedText>
+        <TimeField value={time} onChange={setReminderTime} />
+      </>
     );
   }
 

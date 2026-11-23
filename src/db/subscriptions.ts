@@ -20,11 +20,24 @@ export type SubscriptionInput = Omit<Subscription, 'id' | 'prices' | 'cancelledO
 
 export type SubscriptionStatus = 'active' | 'trial' | 'cancelled';
 
-/** Cancelled once it has a cancellation date, a trial until its first charge. */
+/**
+ * Cancelled from its cancellation day on, a trial until its first charge. A cancellation day still
+ * ahead (access runs until the end of a paid period) leaves it running until then: see `endsOn`.
+ */
 export function statusOf(sub: Subscription, today: DateKey = todayKey()): SubscriptionStatus {
-  if (sub.cancelledOn) return 'cancelled';
+  if (sub.cancelledOn && sub.cancelledOn <= today) return 'cancelled';
   if (sub.isTrial && sub.firstPaymentDate > today) return 'trial';
   return 'active';
+}
+
+/** The day a running subscription that's been cancelled stops, or null if it isn't ending. */
+export function endsOn(sub: Subscription, today: DateKey = todayKey()): DateKey | null {
+  return sub.cancelledOn && sub.cancelledOn > today ? sub.cancelledOn : null;
+}
+
+/** A trial that's been cancelled before it converts, so it'll never charge. */
+export function trialWontConvert(sub: Subscription) {
+  return sub.isTrial && sub.cancelledOn !== null && sub.cancelledOn <= sub.firstPaymentDate;
 }
 
 /** The next charge and what it will cost, or null once cancelled. */
@@ -180,7 +193,7 @@ export async function deletePriceChange(db: SQLiteDatabase, id: number, effectiv
   );
 }
 
-/** Stops future charges from `cancelledOn`, or resumes them with null. */
+/** Stops charges from `cancelledOn` (today, a past day or one ahead), or resumes them with null. */
 export async function setCancelled(db: SQLiteDatabase, id: number, cancelledOn: DateKey | null) {
   await db.runAsync('UPDATE subscriptions SET cancelled_on = ? WHERE id = ?', cancelledOn, id);
 }

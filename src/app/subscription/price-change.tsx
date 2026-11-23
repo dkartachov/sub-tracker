@@ -9,8 +9,9 @@ import { FormScreen } from '@/components/form-screen';
 import { PageHeader } from '@/components/page-header';
 import { ThemedText } from '@/components/themed-text';
 import { addPriceChange, currentPrice, nextCharge, useSubscription, type Subscription } from '@/db/subscriptions';
-import { formatMoney, moneyInputText, parseMoney, useCurrency } from '@/lib/currency';
-import { addDays, fromDateKey, todayKey } from '@/lib/dates';
+import { useToday } from '@/hooks/use-today';
+import { currencyDecimals, formatMoney, moneyInputText, parseMoney, useCurrency } from '@/lib/currency';
+import { addDays, fromDateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
 
 /** Logs a new price for the subscription in `id`, from a chosen day on. */
@@ -23,15 +24,15 @@ export default function PriceChangeScreen() {
 function PriceChangeForm({ sub }: { sub: Subscription }) {
   const db = useSQLiteContext();
   const currency = useCurrency();
-  const today = todayKey();
+  const today = useToday();
   const price = currentPrice(sub, today);
 
-  const [priceText, setPriceText] = useState(moneyInputText(price));
+  const [priceText, setPriceText] = useState(moneyInputText(price, currency));
   // Price changes usually land on the next bill.
   const [effectiveDate, setEffectiveDate] = useState(nextCharge(sub, today)?.date ?? today);
   const [saving, setSaving] = useState(false);
 
-  const amount = parseMoney(priceText);
+  const amount = parseMoney(priceText, currency);
   const firstDate = sub.prices[0].effectiveDate;
   const valid = amount !== null && effectiveDate > firstDate;
 
@@ -53,7 +54,7 @@ function PriceChangeForm({ sub }: { sub: Subscription }) {
       <PageHeader title="Change price" subtitle={`${sub.name}, now ${formatMoney(price, currency)}`} />
 
       <Field label={`New price (${currency})`}>
-        <TextField value={priceText} onChangeText={setPriceText} keyboardType="decimal-pad" selectTextOnFocus autoFocus />
+        <TextField value={priceText} onChangeText={setPriceText} keyboardType={currencyDecimals(currency) === 0 ? 'number-pad' : 'decimal-pad'} selectTextOnFocus autoFocus />
       </Field>
 
       <Field label="Charged from">

@@ -83,9 +83,16 @@ export function priceOn(prices: PriceChange[], date: DateKey): number {
   return amount;
 }
 
+export type Charge = { date: DateKey; amount: number };
+
+/** Every charge from `from` to `to`, both included, oldest first, with what each cost. */
+export function chargesBetween(billing: Billing, from: DateKey, to: DateKey): Charge[] {
+  return paymentsBetween(billing, from, to).map((date) => ({ date, amount: priceOn(billing.prices, date) }));
+}
+
 /** Total charged from `from` to `to`, both included. */
 export function spentBetween(billing: Billing, from: DateKey, to: DateKey): number {
-  return paymentsBetween(billing, from, to).reduce((sum, date) => sum + priceOn(billing.prices, date), 0);
+  return chargesBetween(billing, from, to).reduce((sum, charge) => sum + charge.amount, 0);
 }
 
 const AVERAGE_DAYS_PER_MONTH = 365.25 / 12;

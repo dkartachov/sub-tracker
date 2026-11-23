@@ -2,8 +2,8 @@ import { router } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { Spacing } from '@/constants/theme';
-import type { Subscription } from '@/db/subscriptions';
-import { statusOf } from '@/db/subscriptions';
+import { statusOf, type Subscription } from '@/db/subscriptions';
+import type { DateKey } from '@/lib/dates';
 
 import { CategoryBadge } from './category-badge';
 import { PressableScale } from './pressable-scale';
@@ -12,6 +12,8 @@ import { ThemedText } from './themed-text';
 
 type SubscriptionRowProps = {
   sub: Subscription;
+  /** From `useToday`, so the status moves on at midnight. */
+  today: DateKey;
   /** Under the name, e.g. when it next charges. */
   detail: string;
   /** On the right, e.g. the price. */
@@ -20,8 +22,8 @@ type SubscriptionRowProps = {
 };
 
 /** A subscription in a list, opening its details. */
-export function SubscriptionRow({ sub, detail, amount, amountDetail }: SubscriptionRowProps) {
-  const status = statusOf(sub);
+export function SubscriptionRow({ sub, today, detail, amount, amountDetail }: SubscriptionRowProps) {
+  const status = statusOf(sub, today);
 
   return (
     <PressableScale

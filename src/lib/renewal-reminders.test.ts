@@ -1,6 +1,6 @@
 import type { Subscription } from '@/db/subscriptions';
 
-import { planReminders, REMINDER_HOUR } from './renewal-reminders';
+import { planReminders } from './renewal-reminders';
 
 jest.mock('expo-notifications', () => ({ AndroidImportance: {} }));
 
@@ -21,6 +21,7 @@ function sub(overrides: Partial<Subscription>): Subscription {
 }
 
 const NOW = new Date(2026, 2, 8, 12, 0); // Mar 8, noon
+const REMINDER_HOUR = 9;
 
 it('schedules the next few reminders, skipping one already past', () => {
   const planned = planReminders([sub({})], NOW, 'EUR');
@@ -42,6 +43,22 @@ it('warns before a trial converts', () => {
 
 it('skips subscriptions with reminders off or cancelled', () => {
   expect(planReminders([sub({ reminderDaysBefore: null }), sub({ cancelledOn: '2026-03-01' })], NOW, 'EUR')).toEqual([]);
+});
+
+it('reminds about the charges left before a cancellation still ahead', () => {
+  const planned = planReminders([sub({ cancelledOn: '2026-05-01' })], NOW, 'EUR');
+  expect(planned.map((r) => r.date)).toEqual([new Date(2026, 3, 8, REMINDER_HOUR)]);
+});
+
+it('comes at the chosen time, with a new identifier when it changes', () => {
+  // At noon, this evening's reminder for Mar 10 is still ahead, where this morning's has gone.
+  const [evening] = planReminders([sub({})], NOW, 'EUR', { hour: 19, minute: 30 });
+  expect(evening.date).toEqual(new Date(2026, 2, 8, 19, 30));
+
+  const dayBefore = new Date(2026, 2, 7, 12, 0);
+  const [morning] = planReminders([sub({})], dayBefore, 'EUR', { hour: 9, minute: 0 });
+  const [sameDayEvening] = planReminders([sub({})], dayBefore, 'EUR', { hour: 19, minute: 30 });
+  expect(morning.identifier).not.toBe(sameDayEvening.identifier);
 });
 
 it('gives a new identifier when anything shown changes', () => {

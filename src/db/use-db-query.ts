@@ -4,8 +4,8 @@ import { AppState } from 'react-native';
 
 /**
  * Runs `query` and re-runs it whenever one of `tables` changes, so every screen reading
- * a table stays in sync with writes made elsewhere (e.g. logging a session updates the
- * Dashboard and goal progress). Requires `enableChangeListener` on the provider.
+ * a table stays in sync with writes made elsewhere (e.g. a price change updates the
+ * Overview totals). Requires `enableChangeListener` on the provider.
  *
  * Also re-runs when the app comes back to the foreground, since a query can depend on today's
  * date and the app may have been in the background overnight.

@@ -1,6 +1,6 @@
 import type { Subscription } from '@/db/subscriptions';
 
-import { getOverview } from './spending';
+import { getOverview, monthlySpending } from './spending';
 
 function sub(overrides: Partial<Subscription>): Subscription {
   return {
@@ -70,4 +70,53 @@ it('calls out trials about to convert, at the price they convert to', () => {
   expect(overview.trialsEnding.map((t) => [t.sub.id, t.amount])).toEqual([[1, 1500]]);
   expect(overview.monthly).toBe(2500);
   expect(overview.spentThisYear).toBe(0);
+});
+
+it('keeps one cancelled for a later day running, without counting charges it will not make', () => {
+  const overview = getOverview(
+    [
+      // Paid up to Mar 10, when it would have charged again.
+      sub({ id: 1, cancelledOn: '2026-03-10' }),
+      // Ending in April, so March's charge still comes.
+      sub({ id: 2, name: 'Gym', cancelledOn: '2026-04-01' }),
+    ],
+    TODAY
+  );
+  expect(overview.activeCount).toBe(2);
+  expect(overview.monthly).toBe(1000);
+  expect(overview.upcoming.map((c) => [c.sub.name, c.date])).toEqual([['Gym', '2026-03-10']]);
+});
+
+it('leaves out a trial cancelled before it converts', () => {
+  const overview = getOverview([sub({ isTrial: true, firstPaymentDate: '2026-03-12', cancelledOn: '2026-03-12' })], TODAY);
+  expect(overview.trialCount).toBe(1);
+  expect(overview.trialsEnding).toEqual([]);
+  expect(overview.monthly).toBe(0);
+});
+
+it('points out trials that just turned paid', () => {
+  const overview = getOverview(
+    [
+      sub({ id: 1, isTrial: true, firstPaymentDate: '2026-03-02' }),
+      sub({ id: 2, isTrial: true, firstPaymentDate: '2026-02-01' }),
+      sub({ id: 3, firstPaymentDate: '2026-03-03' }),
+    ],
+    TODAY
+  );
+  expect(overview.recentlyConverted.map((t) => [t.sub.id, t.date, t.amount])).toEqual([[1, '2026-03-02', 1000]]);
+});
+
+it('totals each of the last months, this one split into charged and still to come', () => {
+  const months = monthlySpending(
+    [sub({ id: 1, firstPaymentDate: '2025-12-10' }), sub({ id: 2, firstPaymentDate: '2026-02-01', cancelledOn: '2026-03-01' })],
+    TODAY,
+    4
+  );
+  expect(months).toEqual([
+    { month: '2025-12-01', charged: 1000, scheduled: 0 },
+    { month: '2026-01-01', charged: 1000, scheduled: 0 },
+    { month: '2026-02-01', charged: 2000, scheduled: 0 },
+    // Mar 10 is still ahead on Mar 5.
+    { month: '2026-03-01', charged: 0, scheduled: 1000 },
+  ]);
 });

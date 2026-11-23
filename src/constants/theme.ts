@@ -22,6 +22,9 @@ export const Colors = {
     trial: '#C2700F',
     trialSoft: '#FCEBD5',
     danger: '#C62828',
+    /** Spending chart: charged, and still to charge this month. Checked against `backgroundElement`. */
+    chartCharged: '#4F46E5',
+    chartScheduled: '#A9A4F7',
   },
   dark: {
     text: '#F1F1FA',
@@ -38,6 +41,8 @@ export const Colors = {
     trial: '#F2A33A',
     trialSoft: '#3D2A10',
     danger: '#EF5350',
+    chartCharged: '#7F79F7',
+    chartScheduled: '#5650B4',
   },
 } as const;
 

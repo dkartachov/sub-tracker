@@ -1,0 +1,49 @@
+import { createTestDb } from '@/test-utils/sqlite';
+
+import { replaceAllSubscriptions } from './backup';
+import { createSubscription, getSubscriptions, type SubscriptionInput } from './subscriptions';
+
+const gym: SubscriptionInput = {
+  name: 'Gym',
+  category: 'fitness',
+  cycle: { count: 1, unit: 'month' },
+  firstPaymentDate: '2026-01-01',
+  isTrial: false,
+  reminderDaysBefore: null,
+  notes: '',
+};
+
+it('replaces everything with the backup, price history included', async () => {
+  const db = await createTestDb();
+  await createSubscription(db, gym, 4000);
+
+  await replaceAllSubscriptions(db, [
+    {
+      ...gym,
+      name: 'Netflix',
+      category: 'streaming',
+      cancelledOn: '2026-05-01',
+      prices: [
+        { amount: 1299, effectiveDate: '2026-01-01' },
+        { amount: 1499, effectiveDate: '2026-03-01' },
+      ],
+    },
+  ]);
+
+  const subs = await getSubscriptions(db);
+  expect(subs.map((s) => [s.name, s.cancelledOn, s.prices.map((p) => p.amount)])).toEqual([
+    ['Netflix', '2026-05-01', [1299, 1499]],
+  ]);
+});
+
+it('keeps what was there when a row fails', async () => {
+  const db = await createTestDb();
+  await createSubscription(db, gym, 4000);
+
+  // A zero price breaks the table's CHECK, halfway through.
+  await expect(
+    replaceAllSubscriptions(db, [{ ...gym, cancelledOn: null, prices: [{ amount: 0, effectiveDate: '2026-01-01' }] }])
+  ).rejects.toThrow();
+
+  expect((await getSubscriptions(db)).map((s) => s.name)).toEqual(['Gym']);
+});

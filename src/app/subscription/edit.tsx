@@ -4,13 +4,16 @@ import { useState } from 'react';
 import { StyleSheet, Switch, View } from 'react-native';
 
 import { Button } from '@/components/button';
+import { Chip } from '@/components/chip';
 import { ChipGroup } from '@/components/chip-group';
 import { DateField } from '@/components/date-field';
 import { Field, TextField } from '@/components/field';
 import { FormScreen } from '@/components/form-screen';
 import { PageHeader } from '@/components/page-header';
+import { ScrollView } from '@/components/scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { CATEGORIES, CATEGORY_INFO, type Category } from '@/constants/categories';
+import { suggestTemplates, type SubscriptionTemplate } from '@/constants/templates';
 import { Spacing } from '@/constants/theme';
 import {
   createSubscription,
@@ -21,7 +24,7 @@ import {
 } from '@/db/subscriptions';
 import { useTheme } from '@/hooks/use-theme';
 import { CYCLE_UNITS, type CycleUnit } from '@/lib/billing';
-import { parseMoney, useCurrency } from '@/lib/currency';
+import { currencyDecimals, moneyPlaceholder, parseMoney, useCurrency } from '@/lib/currency';
 import { todayKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
 import { requestNotificationPermission } from '@/lib/renewal-reminders';
@@ -64,10 +67,18 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const [notes, setNotes] = useState(existing?.notes ?? '');
   const [saving, setSaving] = useState(false);
 
-  const price = parseMoney(priceText);
+  const price = parseMoney(priceText, currency);
   const cycleCount = Number(cycleCountText);
   const cycleValid = Number.isInteger(cycleCount) && cycleCount >= 1 && cycleCount <= 99;
   const valid = name.trim() !== '' && cycleValid && (existing !== undefined || price !== null);
+  const suggestions = existing ? [] : suggestTemplates(name);
+
+  const applyTemplate = (template: SubscriptionTemplate) => {
+    setName(template.name);
+    setCategory(template.category);
+    setCycleCountText(String(template.cycle.count));
+    setCycleUnit(template.cycle.unit);
+  };
 
   const save = async () => {
     if (!valid) return;
@@ -107,11 +118,22 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
           autoFocus={!existing}
           returnKeyType="next"
         />
+        {suggestions.length > 0 && (
+          <ScrollView
+            horizontal
+            keyboardShouldPersistTaps="handled"
+            accessibilityLabel="Suggestions"
+            contentContainerStyle={styles.suggestions}>
+            {suggestions.map((template) => (
+              <Chip key={template.name} label={template.name} selected={false} onPress={() => applyTemplate(template)} />
+            ))}
+          </ScrollView>
+        )}
       </Field>
 
       {!existing && (
         <Field label={`Price (${currency})`}>
-          <TextField value={priceText} onChangeText={setPriceText} placeholder="12.99" keyboardType="decimal-pad" />
+          <TextField value={priceText} onChangeText={setPriceText} placeholder={moneyPlaceholder(currency)} keyboardType={currencyDecimals(currency) === 0 ? 'number-pad' : 'decimal-pad'} />
         </Field>
       )}
 
@@ -192,6 +214,9 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
 }
 
 const styles = StyleSheet.create({
+  suggestions: {
+    gap: Spacing.two,
+  },
   cycleRow: {
     flexDirection: 'row',
     alignItems: 'center',

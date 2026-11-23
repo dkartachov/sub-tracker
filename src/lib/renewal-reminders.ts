@@ -13,13 +13,11 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { getSubscriptions, type Subscription } from '@/db/subscriptions';
 
 import { paymentsBetween, priceOn } from './billing';
-import { addDays, fromDateKey, toDateKey, type DateKey } from './dates';
 import { formatMoney, getCurrency } from './currency';
+import { addDays, fromDateKey, toDateKey, type DateKey } from './dates';
+import { getReminderTime, timeKey, type TimeOfDay } from './reminder-time';
 
 const CHANNEL_ID = 'renewals';
-
-/** Reminders come in the morning. */
-export const REMINDER_HOUR = 9;
 
 /** How many upcoming reminders each subscription keeps scheduled. */
 const REMINDERS_PER_SUBSCRIPTION = 3;
@@ -41,26 +39,35 @@ function dayPhrase(daysBefore: number) {
   return `in ${daysBefore} days`;
 }
 
-/** The reminders that should be scheduled after `now`, for every subscription with them on. */
-export function planReminders(subs: Subscription[], now: Date, currency = getCurrency()): PlannedReminder[] {
+/**
+ * The reminders that should be scheduled after `now`, at `time` of day, for every subscription with
+ * them on. One cancelled for a later day still gets them for the charges it has left.
+ */
+export function planReminders(
+  subs: Subscription[],
+  now: Date,
+  currency = getCurrency(),
+  time: TimeOfDay = getReminderTime()
+): PlannedReminder[] {
   const today = toDateKey(now);
   const planned: PlannedReminder[] = [];
 
   for (const sub of subs) {
     const daysBefore = sub.reminderDaysBefore;
-    if (daysBefore === null || sub.cancelledOn) continue;
+    if (daysBefore === null) continue;
 
     let count = 0;
+    // Stops at the cancellation day, so nothing is planned once it's cancelled.
     for (const paymentDate of paymentsBetween(sub, today, addDays(today, LOOKAHEAD_DAYS))) {
       const date = fromDateKey(addDays(paymentDate, -daysBefore));
-      date.setHours(REMINDER_HOUR);
+      date.setHours(time.hour, time.minute);
       if (date.getTime() <= now.getTime()) continue;
 
       const amount = formatMoney(priceOn(sub.prices, paymentDate), currency);
       const isTrialEnd = sub.isTrial && paymentDate === sub.firstPaymentDate;
       planned.push({
         // Holds everything the notification says, so any edit replaces it with a fresh one.
-        identifier: ['renewal', sub.id, paymentDate, daysBefore, amount, sub.name].join('|'),
+        identifier: ['renewal', sub.id, paymentDate, daysBefore, timeKey(time), amount, sub.name].join('|'),
         date,
         subscriptionId: sub.id,
         title: isTrialEnd ? `${sub.name} trial ends ${dayPhrase(daysBefore)}` : `${sub.name} renews ${dayPhrase(daysBefore)}`,

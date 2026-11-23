@@ -5,15 +5,18 @@ import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { Screen } from '@/components/screen';
 import { InfoRow, Section } from '@/components/section';
+import { SpendingChart } from '@/components/spending-chart';
 import { SubscriptionRow } from '@/components/subscription-row';
 import { ThemedText } from '@/components/themed-text';
 import { CATEGORY_INFO } from '@/constants/categories';
 import { Radius, Spacing } from '@/constants/theme';
 import { useSubscriptions } from '@/db/subscriptions';
 import { useTheme } from '@/hooks/use-theme';
+import { useToday } from '@/hooks/use-today';
+import { formatCycle } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
-import { formatShortDate, formatUpcomingDay, todayKey } from '@/lib/dates';
-import { getOverview, UPCOMING_DAYS } from '@/lib/spending';
+import { addDays, daysBetween, formatShortDate, formatUpcomingDay, fromDateKey, type DateKey } from '@/lib/dates';
+import { getOverview, monthlySpending, UPCOMING_DAYS } from '@/lib/spending';
 
 /** Upcoming charges beyond this many are left to the Subscriptions tab. */
 const UPCOMING_SHOWN = 6;
@@ -21,7 +24,7 @@ const UPCOMING_SHOWN = 6;
 export default function OverviewScreen() {
   const subs = useSubscriptions();
   const currency = useCurrency();
-  const today = todayKey();
+  const today = useToday();
 
   if (subs === undefined) return <Screen title="Overview">{null}</Screen>;
 
@@ -46,7 +49,7 @@ export default function OverviewScreen() {
   return (
     <Screen
       title="Overview"
-      eyebrow={new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}>
+      eyebrow={fromDateKey(today).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}>
       <Card style={styles.totals}>
         <ThemedText type="eyebrow" themeColor="textSecondary">
           Per month
@@ -66,9 +69,25 @@ export default function OverviewScreen() {
             <SubscriptionRow
               key={sub.id}
               sub={sub}
-              detail={`Converts ${formatUpcomingDay(date, today)}`}
+              today={today}
+              detail={trialDeadline(date, today)}
               amount={money(amount)}
               amountDetail="then"
+            />
+          ))}
+        </Section>
+      )}
+
+      {overview.recentlyConverted.length > 0 && (
+        <Section title="Trials now paid">
+          {overview.recentlyConverted.map(({ sub, date, amount }) => (
+            <SubscriptionRow
+              key={sub.id}
+              sub={sub}
+              today={today}
+              detail={`Trial ended ${daysAgo(daysBetween(date, today))}`}
+              amount={money(amount)}
+              amountDetail={`per ${formatCycle(sub.cycle)}`}
             />
           ))}
         </Section>
@@ -83,6 +102,7 @@ export default function OverviewScreen() {
               <SubscriptionRow
                 key={`${sub.id}-${date}`}
                 sub={sub}
+                today={today}
                 detail={`${capitalize(formatUpcomingDay(date, today))} · ${formatShortDate(date, today)}`}
                 amount={money(amount)}
               />
@@ -109,6 +129,10 @@ export default function OverviewScreen() {
         </Section>
       )}
 
+      <Section title="Last 12 months">
+        <SpendingChart months={monthlySpending(subs, today)} />
+      </Section>
+
       <Section title={`Spent in ${today.slice(0, 4)}`}>
         <ThemedText type="stat">{money(overview.spentThisYear)}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
@@ -134,6 +158,19 @@ function CategoryBar({ label, color, amount, fraction }: { label: string; color:
       </View>
     </View>
   );
+}
+
+/** When to cancel a trial converting on `date` by, so it costs nothing. */
+function trialDeadline(date: DateKey, today: DateKey) {
+  const lastFreeDay = addDays(date, -1);
+  if (lastFreeDay <= today) return 'Last free day, cancel today to pay nothing';
+  return `Cancel by ${formatShortDate(lastFreeDay, today)} to pay nothing`;
+}
+
+function daysAgo(days: number) {
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
 }
 
 function capitalize(text: string) {

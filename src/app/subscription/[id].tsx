@@ -1,9 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
+import { useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { Card } from '@/components/card';
 import { CategoryBadge } from '@/components/category-badge';
 import { PageHeader } from '@/components/page-header';
 import { PressableScale } from '@/components/pressable-scale';
@@ -17,16 +19,23 @@ import {
   currentPrice,
   deletePriceChange,
   deleteSubscription,
+  endsOn,
   nextCharge,
   setCancelled,
   statusOf,
+  trialWontConvert,
   useSubscription,
   type Subscription,
 } from '@/db/subscriptions';
 import { useTheme } from '@/hooks/use-theme';
-import { formatCycle, formatCycleAdverb, monthlyEquivalent, spentBetween } from '@/lib/billing';
+import { useToday } from '@/hooks/use-today';
+import { chargesBetween, formatCycle, formatCycleAdverb, monthlyEquivalent, spentBetween } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
-import { formatDateKey, formatShortDate, formatUpcomingDay, todayKey } from '@/lib/dates';
+import { addDays, daysBetween, formatDateKey, formatShortDate, formatUpcomingDay, type DateKey } from '@/lib/dates';
+import { RECENTLY_CONVERTED_DAYS } from '@/lib/spending';
+
+/** Past charges shown before "Show all". */
+const CHARGES_SHOWN = 6;
 
 export default function SubscriptionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -47,19 +56,16 @@ export default function SubscriptionScreen() {
 function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const db = useSQLiteContext();
   const currency = useCurrency();
-  const today = todayKey();
+  const today = useToday();
   const money = (minor: number) => formatMoney(minor, currency);
 
   const status = statusOf(sub, today);
   const next = nextCharge(sub, today);
+  const ends = endsOn(sub, today);
   const price = next?.amount ?? currentPrice(sub, today);
   const reminder = sub.reminderDaysBefore;
 
-  const cancel = () =>
-    Alert.alert(`Cancel ${sub.name}?`, 'No charges are counted from today on. You can resume it later.', [
-      { text: 'Keep it', style: 'cancel' },
-      { text: 'Mark cancelled', style: 'destructive', onPress: () => setCancelled(db, sub.id, today) },
-    ]);
+  const editCancellation = () => router.push({ pathname: '/subscription/cancel', params: { id: String(sub.id) } });
 
   const remove = () =>
     Alert.alert(`Delete ${sub.name}?`, 'Its price history goes too, and it drops out of what you spent. To keep that, mark it cancelled instead.', [
@@ -96,15 +102,17 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
         subtitle={`${money(price)} per ${formatCycle(sub.cycle)}`}
       />
 
+      <TrialNotice sub={sub} today={today} />
+
       <Section title="Billing">
-        {next ? (
+        {next && (
           <InfoRow
             label={status === 'trial' ? 'Trial ends' : 'Next charge'}
             value={`${formatShortDate(next.date, today)}, ${formatUpcomingDay(next.date, today)}`}
           />
-        ) : (
-          <InfoRow label="Cancelled" value={formatDateKey(sub.cancelledOn!)} />
         )}
+        {ends && <InfoRow label="Ends" value={`${formatShortDate(ends, today)}, ${formatUpcomingDay(ends, today)}`} />}
+        {status === 'cancelled' && <InfoRow label="Cancelled" value={formatDateKey(sub.cancelledOn!)} />}
         <InfoRow label="Billed" value={formatCycleAdverb(sub.cycle)} />
         {sub.cycle.unit !== 'month' || sub.cycle.count !== 1 ? (
           <InfoRow label="Per month" value={`≈ ${money(monthlyEquivalent(price, sub.cycle))}`} />
@@ -122,6 +130,8 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
         <InfoRow label={`In ${today.slice(0, 4)}`} value={money(spentBetween(sub, `${today.slice(0, 4)}-01-01`, today))} />
         <InfoRow label="All time" value={money(spentBetween(sub, sub.firstPaymentDate, today))} />
       </Section>
+
+      <ChargeHistory sub={sub} today={today} />
 
       <Section
         title="Price history"
@@ -173,13 +183,80 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
           onPress={() => router.push({ pathname: '/subscription/edit', params: { id: String(sub.id) } })}
         />
         {sub.cancelledOn ? (
-          <Button title="Resume" variant="secondary" onPress={() => setCancelled(db, sub.id, null)} />
+          <>
+            <Button title="Resume" variant="secondary" onPress={() => setCancelled(db, sub.id, null)} />
+            <Button title="Change cancellation" variant="secondary" onPress={editCancellation} />
+          </>
         ) : (
-          <Button title="Mark cancelled" variant="secondary" onPress={cancel} />
+          <Button title="Mark cancelled" variant="secondary" onPress={editCancellation} />
         )}
         <Button title="Delete" variant="destructive" onPress={remove} />
       </View>
     </>
+  );
+}
+
+/**
+ * While a trial runs, when to cancel by to avoid paying; just after it converts, that it did, in
+ * case that went unnoticed. Nothing otherwise.
+ */
+function TrialNotice({ sub, today }: { sub: Subscription; today: DateKey }) {
+  const theme = useTheme();
+  const currency = useCurrency();
+  if (!sub.isTrial || trialWontConvert(sub)) return null;
+
+  const firstCharge = chargesBetween(sub, sub.firstPaymentDate, sub.firstPaymentDate)[0];
+  if (!firstCharge) return null;
+  const amount = formatMoney(firstCharge.amount, currency);
+  const daysLeft = daysBetween(today, sub.firstPaymentDate);
+
+  let title: string;
+  let body: string;
+  if (daysLeft > 0) {
+    const lastFreeDay = addDays(sub.firstPaymentDate, -1);
+    title = daysLeft === 1 ? 'Last free day: cancel today to pay nothing' : `${daysLeft} free days left`;
+    body = `It's free until ${formatDateKey(lastFreeDay)}. Unless you cancel by then, ${amount} is charged on ${formatDateKey(sub.firstPaymentDate)}.`;
+  } else if (-daysLeft < RECENTLY_CONVERTED_DAYS) {
+    title = 'Your free trial has ended';
+    body = `It turned paid ${daysLeft === 0 ? 'today' : `on ${formatDateKey(sub.firstPaymentDate)}`}, at ${amount} per ${formatCycle(sub.cycle)}. Cancel it if you didn't mean to keep it.`;
+  } else {
+    return null;
+  }
+
+  return (
+    <Card style={{ backgroundColor: theme.trialSoft }}>
+      <ThemedText type="smallBold" themeColor="trial">
+        {title}
+      </ThemedText>
+      <ThemedText type="small">{body}</ThemedText>
+    </Card>
+  );
+}
+
+/** Every charge so far, newest first: the latest few, then all on request. */
+function ChargeHistory({ sub, today }: { sub: Subscription; today: DateKey }) {
+  const currency = useCurrency();
+  const [showAll, setShowAll] = useState(false);
+  const charges = chargesBetween(sub, sub.firstPaymentDate, today).reverse();
+  if (charges.length === 0) return null;
+  const shown = showAll ? charges : charges.slice(0, CHARGES_SHOWN);
+
+  return (
+    <Section
+      title={`Charges · ${charges.length}`}
+      action={
+        charges.length > CHARGES_SHOWN && (
+          <PressableScale accessibilityRole="button" hitSlop={8} onPress={() => setShowAll((all) => !all)}>
+            <ThemedText type="smallBold" themeColor="tint">
+              {showAll ? 'Show fewer' : 'Show all'}
+            </ThemedText>
+          </PressableScale>
+        )
+      }>
+      {shown.map((charge) => (
+        <InfoRow key={charge.date} label={formatDateKey(charge.date)} value={formatMoney(charge.amount, currency)} />
+      ))}
+    </Section>
   );
 }
 

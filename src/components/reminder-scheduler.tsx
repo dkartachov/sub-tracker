@@ -6,6 +6,7 @@ import { AppState } from 'react-native';
 
 import { useCurrency } from '@/lib/currency';
 import { syncRenewalReminders } from '@/lib/renewal-reminders';
+import { useReminderTime } from '@/lib/reminder-time';
 
 const SYNCED_TABLES = ['subscriptions', 'price_changes'];
 
@@ -20,12 +21,13 @@ setNotificationHandler({
 
 /**
  * Keeps scheduled renewal reminders matching the subscriptions, when they change, when the
- * currency changes (it's in the text) and whenever the app opens. Tapping one opens its
+ * currency (it's in the text) or reminder time changes, and whenever the app opens. Tapping one opens its
  * subscription. Renders nothing; it's a component because it has to sit inside `SQLiteProvider`.
  */
 export function ReminderScheduler() {
   const db = useSQLiteContext();
   const currency = useCurrency();
+  const reminderTime = useReminderTime();
 
   useEffect(() => {
     const taps = addNotificationResponseReceivedListener((response) => {
@@ -37,7 +39,7 @@ export function ReminderScheduler() {
 
   useEffect(() => {
     syncRenewalReminders(db);
-  }, [db, currency]);
+  }, [db, currency, reminderTime]);
 
   useEffect(() => {
     const changes = addDatabaseChangeListener((event) => {

@@ -69,6 +69,8 @@ function RootNavigator() {
           <Stack.Screen name="subscription/[id]" />
           <Stack.Screen name="subscription/edit" options={{ presentation: 'modal' }} />
           <Stack.Screen name="subscription/price-change" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="subscription/cancel" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="restore" options={{ presentation: 'modal' }} />
         </Stack>
         <DevVariantLabel />
       </ThemeProvider>

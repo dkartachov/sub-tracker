@@ -1,3 +1,4 @@
+import { spentBetween } from '@/lib/billing';
 import { createTestDb } from '@/test-utils/sqlite';
 
 import {
@@ -5,11 +6,13 @@ import {
   createSubscription,
   deletePriceChange,
   deleteSubscription,
+  endsOn,
   getSubscription,
   getSubscriptions,
   nextCharge,
   setCancelled,
   statusOf,
+  trialWontConvert,
   updateSubscription,
   type SubscriptionInput,
 } from './subscriptions';
@@ -71,8 +74,33 @@ it('tells trials, active and cancelled subscriptions apart', async () => {
 
   await setCancelled(db, id, '2026-01-12');
   const cancelled = (await getSubscription(db, id))!;
-  expect(statusOf(cancelled, '2026-01-10')).toBe('cancelled');
+  expect(statusOf(cancelled, '2026-01-12')).toBe('cancelled');
   expect(nextCharge(cancelled, '2026-01-10')).toBeNull();
+  expect(trialWontConvert(cancelled)).toBe(true);
+});
+
+it('keeps a subscription cancelled for a later day running until then', async () => {
+  const db = await createTestDb();
+  const id = await createSubscription(db, netflix, 999);
+  // Cancelled on Mar 3, but paid up until the charge due Mar 15.
+  await setCancelled(db, id, '2026-03-15');
+  const sub = (await getSubscription(db, id))!;
+
+  expect(statusOf(sub, '2026-03-03')).toBe('active');
+  expect(endsOn(sub, '2026-03-03')).toBe('2026-03-15');
+  expect(nextCharge(sub, '2026-03-03')).toBeNull();
+  expect(statusOf(sub, '2026-03-15')).toBe('cancelled');
+  expect(endsOn(sub, '2026-03-15')).toBeNull();
+});
+
+it('can be cancelled from a past day', async () => {
+  const db = await createTestDb();
+  const id = await createSubscription(db, netflix, 999);
+  await setCancelled(db, id, '2026-02-20');
+  const sub = (await getSubscription(db, id))!;
+
+  expect(statusOf(sub, '2026-06-01')).toBe('cancelled');
+  expect(spentBetween(sub, '2026-01-01', '2026-06-01')).toBe(2 * 999);
 });
 
 it('deletes a subscription with its prices', async () => {

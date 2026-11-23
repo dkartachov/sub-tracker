@@ -1,42 +1,47 @@
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { StyleSheet } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
+import { ChipGroup } from '@/components/chip-group';
+import { TextField } from '@/components/field';
 import { IconButton } from '@/components/icon-button';
 import { Screen } from '@/components/screen';
 import { Section } from '@/components/section';
 import { SubscriptionRow } from '@/components/subscription-row';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { currentPrice, nextCharge, statusOf, useSubscriptions, type Subscription } from '@/db/subscriptions';
+import { useSubscriptions } from '@/db/subscriptions';
+import { useToday } from '@/hooks/use-today';
 import { formatCycle } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
-import { formatShortDate, formatUpcomingDay, todayKey } from '@/lib/dates';
+import { formatShortDate, formatUpcomingDay } from '@/lib/dates';
+import {
+  arrangeSubscriptions,
+  setSubscriptionSort,
+  SUBSCRIPTION_SORTS,
+  SUBSCRIPTION_SORT_LABELS,
+  useSubscriptionSort,
+} from '@/lib/subscription-list';
+
+/** Search only shows up once there's enough to search through. */
+const SEARCH_FROM = 6;
 
 export default function SubscriptionsScreen() {
   const subs = useSubscriptions();
   const currency = useCurrency();
-  const today = todayKey();
+  const today = useToday();
+  const sort = useSubscriptionSort();
+  const [query, setQuery] = useState('');
 
   const add = () => router.push('/subscription/edit');
   const addButton = <IconButton icon={{ ios: 'plus', android: 'add' }} label="Add subscription" onPress={add} />;
 
   if (subs === undefined) return <Screen title="Subscriptions">{null}</Screen>;
 
-  // Running ones soonest charge first; cancelled ones most recently cancelled first.
-  const running = subs
-    .filter((sub) => statusOf(sub, today) !== 'cancelled')
-    .map((sub) => ({ sub, next: nextCharge(sub, today) }))
-    .sort((a, b) => (a.next?.date ?? '').localeCompare(b.next?.date ?? ''));
-  const cancelled = subs
-    .filter((sub) => statusOf(sub, today) === 'cancelled')
-    .sort((a, b) => (b.cancelledOn ?? '').localeCompare(a.cancelledOn ?? ''));
-
-  const price = (sub: Subscription, amount: number) => ({
-    amount: formatMoney(amount, currency),
-    amountDetail: `per ${formatCycle(sub.cycle)}`,
-  });
+  const { running, cancelled } = arrangeSubscriptions(subs, today, sort, query);
+  const money = (amount: number) => formatMoney(amount, currency);
 
   return (
     <Screen title="Subscriptions" headerAction={addButton}>
@@ -47,18 +52,46 @@ export default function SubscriptionsScreen() {
         </Card>
       )}
 
+      {subs.length >= SEARCH_FROM && (
+        <TextField
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search names, notes, categories"
+          accessibilityLabel="Search subscriptions"
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+          autoCorrect={false}
+        />
+      )}
+      {subs.length > 1 && (
+        <ChipGroup
+          options={SUBSCRIPTION_SORTS}
+          value={sort}
+          onChange={setSubscriptionSort}
+          label={(s) => SUBSCRIPTION_SORT_LABELS[s]}
+        />
+      )}
+
+      {subs.length > 0 && running.length === 0 && cancelled.length === 0 && (
+        <ThemedText themeColor="textSecondary">Nothing matches “{query.trim()}”.</ThemedText>
+      )}
+
       {running.length > 0 && (
         <Section title={`Running · ${running.length}`}>
-          {running.map(({ sub, next }) => (
+          {running.map(({ sub, next, ends, price }) => (
             <SubscriptionRow
               key={sub.id}
               sub={sub}
+              today={today}
               detail={
                 next
-                  ? `${statusOf(sub, today) === 'trial' ? 'Trial ends' : 'Renews'} ${formatUpcomingDay(next.date, today)}`
-                  : ''
+                  ? `${next.isTrialEnd ? 'Trial ends' : 'Renews'} ${formatUpcomingDay(next.date, today)}${ends ? `, ends ${formatShortDate(ends, today)}` : ''}`
+                  : ends
+                    ? `Ends ${formatUpcomingDay(ends, today)}, no more charges`
+                    : ''
               }
-              {...price(sub, next?.amount ?? currentPrice(sub, today))}
+              amount={money(price)}
+              amountDetail={`per ${formatCycle(sub.cycle)}`}
             />
           ))}
         </Section>
@@ -66,12 +99,14 @@ export default function SubscriptionsScreen() {
 
       {cancelled.length > 0 && (
         <Section title={`Cancelled · ${cancelled.length}`}>
-          {cancelled.map((sub) => (
+          {cancelled.map(({ sub, price }) => (
             <SubscriptionRow
               key={sub.id}
               sub={sub}
+              today={today}
               detail={`Cancelled ${formatShortDate(sub.cancelledOn!, today)}`}
-              {...price(sub, currentPrice(sub, today))}
+              amount={money(price)}
+              amountDetail={`per ${formatCycle(sub.cycle)}`}
             />
           ))}
         </Section>
