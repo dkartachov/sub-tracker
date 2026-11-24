@@ -58,7 +58,7 @@ export const PRIVACY_POLICY: PolicySection[] = [
   {
     heading: 'Who else handles your data',
     paragraphs: [
-      "Expo delivers app updates: when Subtracker opens, it asks Expo's update service whether a newer version is available. That request carries technical details such as the app version and platform, never your subscriptions or settings. Google Play distributes the app under its own privacy policy.",
+      "Expo delivers app updates: when Subtracker opens, it asks Expo's update service whether a newer version is available. That request carries technical details: the app version and platform, a random ID made for this installation of the app (not tied to your phone or any account), the details of a recent update that failed to start, if there was one, and, like any internet request, your IP address. Expo uses these to deliver updates and spot ones that fail. They never include your subscriptions or settings. Google Play distributes the app under its own privacy policy.",
     ],
   },
   {
@@ -72,7 +72,7 @@ export const PRIVACY_POLICY: PolicySection[] = [
   {
     heading: 'Children',
     paragraphs: [
-      'Subtracker is not intended for children under 13, and it does not collect information from anyone.',
+      'Subtracker is not intended for children under 13, and we do not knowingly collect information from children.',
     ],
   },
   {
