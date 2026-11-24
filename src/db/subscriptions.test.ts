@@ -26,6 +26,7 @@ const netflix: SubscriptionInput = {
   firstPaymentDate: '2026-01-15',
   isTrial: false,
   reminderDaysBefore: 3,
+  chargeWindowDays: 0,
   notes: '',
 };
 
@@ -193,4 +194,13 @@ it('edits the first period start and the latest cycle', async () => {
     ['2026-01-10', month],
     ['2026-04-15', { count: 2, unit: 'year' }],
   ]);
+});
+
+it('saves how late a charge can land', async () => {
+  const db = await createTestDb();
+  const id = await createSubscription(db, { ...netflix, chargeWindowDays: 7 }, 999);
+  expect((await getSubscription(db, id))!.chargeWindowDays).toBe(7);
+
+  await updateSubscription(db, id, { ...netflix, chargeWindowDays: 3 });
+  expect((await getSubscription(db, id))!.chargeWindowDays).toBe(3);
 });

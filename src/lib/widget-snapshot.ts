@@ -7,7 +7,7 @@ import type { UpcomingWidgetProps } from '@/widgets/upcoming-widget';
 
 import { firstPaymentDate } from './billing';
 import { formatMoney, type Currency } from './currency';
-import { formatShortDate, type DateKey } from './dates';
+import { formatShortDate, formatShortDateRange, type DateKey } from './dates';
 import { getOverview } from './spending';
 
 /** More than the widget shows, in case a resized one fits more later. */
@@ -17,9 +17,9 @@ export function widgetSnapshot(subs: Subscription[], currency: Currency, today: 
   const overview = getOverview(subs, today);
   return {
     monthly: formatMoney(Math.round(overview.monthly), currency),
-    upcoming: overview.upcoming.slice(0, CHARGES_SENT).map(({ sub, date, amount }) => {
+    upcoming: overview.upcoming.slice(0, CHARGES_SENT).map(({ sub, date, latest, amount }) => {
       const isTrialEnd = sub.isTrial && date === firstPaymentDate(sub);
-      const day = formatShortDate(date, today);
+      const day = isTrialEnd ? formatShortDate(date, today) : formatShortDateRange(date, latest, today);
       return { name: sub.name, when: isTrialEnd ? `Trial ends ${day}` : day, amount: formatMoney(amount, currency), isTrialEnd };
     }),
     emptyText: subs.length === 0 ? 'Add your subscriptions in Subtracker.' : 'No charges in the next 30 days.',

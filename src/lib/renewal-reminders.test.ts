@@ -15,6 +15,7 @@ function sub(overrides: Partial<SimpleSubscription>): Subscription {
     isTrial: false,
     cancelledOn: null,
     reminderDaysBefore: 2,
+    chargeWindowDays: 0,
     notes: '',
     prices: [{ amount: 1299, effectiveDate: '2026-01-10' }],
     ...overrides,
@@ -67,4 +68,13 @@ it('gives a new identifier when anything shown changes', () => {
   const [renamed] = planReminders([sub({ name: 'Netflix Premium' })], NOW, 'EUR');
   const [repriced] = planReminders([sub({ prices: [{ amount: 1499, effectiveDate: '2026-01-10' }] })], NOW, 'EUR');
   expect(new Set([before.identifier, renamed.identifier, repriced.identifier]).size).toBe(3);
+});
+
+it('reminds before the earliest day of a charge that can land late, saying the latest', () => {
+  const [first] = planReminders([sub({ chargeWindowDays: 7 })], NOW, 'EUR');
+  // This morning's for Mar 10 has gone, so the first is April's.
+  expect(first.date).toEqual(new Date(2026, 3, 8, REMINDER_HOUR));
+  expect(first.body).toMatch(/from Friday, Apr 10, by Friday, Apr 17 at the latest\.$/);
+  const [exact] = planReminders([sub({})], NOW, 'EUR');
+  expect(first.identifier).not.toBe(exact.identifier);
 });

@@ -12,6 +12,7 @@ const netflix: Subscription = simpleSubscription({
   isTrial: false,
   cancelledOn: null,
   reminderDaysBefore: 3,
+  chargeWindowDays: 0,
   notes: 'Family plan, "shared"',
   prices: [
     { amount: 1299, effectiveDate: '2026-01-10' },
@@ -36,7 +37,7 @@ it('accepts a backup with spaces or lines around it', () => {
 it('refuses text that is not a backup, saying why', () => {
   expect(() => parseBackup('hello')).toThrow(BackupError);
   expect(() => parseBackup('{"app":"other"}')).toThrow("isn't a Subtracker backup");
-  expect(() => parseBackup(text({ version: 3 }))).toThrow('newer version');
+  expect(() => parseBackup(text({ version: 4 }))).toThrow('newer version');
   expect(() => parseBackup(text({ currency: 'XYZ' }))).toThrow('unknown currency');
 });
 
@@ -88,4 +89,16 @@ it('writes a CSV row per subscription, quoting what needs it', () => {
   const [header, row] = subscriptionsCsv([netflix], 'EUR', '2026-03-05').split('\r\n');
   expect(header).toBe('Name,Category,Status,Price (EUR),Billed,Per month (EUR),Next charge,First payment,Cancelled from,Notes');
   expect(row).toBe('Netflix,Streaming,active,12.99,Monthly,12.99,2026-03-10,2026-01-10,,"Family plan, ""shared"""');
+});
+
+it('keeps how late charges can land, and reads older backups as on the day', () => {
+  const coffee = { ...netflix, chargeWindowDays: 7 };
+  const [sub] = parseBackup(serializeBackup(createBackup([coffee], 'EUR'))).subscriptions;
+  expect(sub.chargeWindowDays).toBe(7);
+
+  const { chargeWindowDays: _window, ...v2Sub } = createBackup([netflix], 'EUR').subscriptions[0];
+  expect(parseBackup(text({ version: 2, subscriptions: [v2Sub] })).subscriptions[0].chargeWindowDays).toBe(0);
+
+  expect(() => parseBackup(text({ subscriptions: [{ ...v2Sub, chargeWindowDays: -1 }] }))).toThrow('unreadable charge day');
+  expect(() => parseBackup(text({ subscriptions: [v2Sub] }))).toThrow('unreadable charge day');
 });

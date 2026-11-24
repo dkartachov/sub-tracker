@@ -61,6 +61,57 @@ export function formatShortDate(key: DateKey, today: DateKey = todayKey()): stri
   });
 }
 
+/**
+ * "Nov 16 – 23", "Nov 28 – Dec 5", with years as `formatShortDate` gives them, or a single day
+ * when `from` and `to` are the same.
+ */
+export function formatShortDateRange(from: DateKey, to: DateKey, today: DateKey = todayKey()): string {
+  if (from === to) return formatShortDate(from, today);
+  const format = new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...((from.slice(0, 4) !== today.slice(0, 4) || to.slice(0, 4) !== today.slice(0, 4)) && { year: 'numeric' }),
+  });
+  // Hermes has no formatRange, so within a month the last day is written with the first day's
+  // number in front of its own, wherever the locale puts the day: "Nov 16 – 23", "16 – 23 Nov".
+  if (from.slice(0, 7) === to.slice(0, 7) && typeof format.formatToParts === 'function') {
+    const fromDay = String(fromDateKey(from).getDate());
+    return format
+      .formatToParts(fromDateKey(to))
+      .map((part) => (part.type === 'day' ? `${fromDay} – ${part.value}` : part.value))
+      .join('');
+  }
+  return `${format.format(fromDateKey(from))} – ${format.format(fromDateKey(to))}`;
+}
+
+/**
+ * When a charge that can land any day from `from` to `to` is still to come, said the way you
+ * would: "in 3–10 days", "by Nov 23" once it may land any day, else the dates. The same as
+ * `formatUpcomingDay` when they're one day.
+ */
+export function formatUpcomingWindow(from: DateKey, to: DateKey, today: DateKey = todayKey()): string {
+  if (from === to) return formatUpcomingDay(from, today);
+  const [start, end] = [daysBetween(today, from), daysBetween(today, to)];
+  if (start <= 0) return end === 0 ? 'today at the latest' : end === 1 ? 'by tomorrow' : `by ${formatShortDate(to, today)}`;
+  if (end < 14) return `in ${start}–${end} days`;
+  return formatShortDateRange(from, to, today);
+}
+
+/** Whether `today` is inside a range of more than one day, both ends included: a charge that may land any day now. */
+export function isWithinRange(from: DateKey, to: DateKey, today: DateKey = todayKey()): boolean {
+  return from !== to && from <= today && today <= to;
+}
+
+/**
+ * "today" or "tomorrow" for a charge on a single day that near, else null. A range gets neither:
+ * the "Due now" pill says when it may land.
+ */
+export function formatNearDay(from: DateKey, to: DateKey, today: DateKey = todayKey()): string | null {
+  if (from !== to) return null;
+  const days = daysBetween(today, from);
+  return days === 0 ? 'today' : days === 1 ? 'tomorrow' : null;
+}
+
 /** A future day said the way you would: "today", "tomorrow", "in 5 days", else the date. */
 export function formatUpcomingDay(key: DateKey, today: DateKey = todayKey()): string {
   const days = daysBetween(today, key);

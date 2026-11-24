@@ -22,7 +22,7 @@ import {
   deletePriceChange,
   deleteSubscription,
   endsOn,
-  nextCharge,
+  expectedCharge,
   setCancelled,
   statusOf,
   trialWontConvert,
@@ -38,6 +38,7 @@ import {
   finalEnd,
   firstPaymentDate,
   formatCycle,
+  formatChargeWindow,
   formatCycleAdverb,
   monthlyEquivalent,
   spentBetween,
@@ -45,8 +46,20 @@ import {
   type BillingPeriod,
 } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
-import { addDays, daysBetween, formatDateKey, formatShortDate, formatUpcomingDay, type DateKey } from '@/lib/dates';
+import {
+  addDays,
+  daysBetween,
+  formatDateKey,
+  formatNearDay,
+  formatShortDateRange,
+  type DateKey,
+} from '@/lib/dates';
 import { RECENTLY_CONVERTED_DAYS } from '@/lib/spending';
+
+/** "Dec 23", "Nov 25, tomorrow", "Nov 16 – 23": the day, and how near only for a single day that near. */
+function dueDay(from: DateKey, to: DateKey, today: DateKey) {
+  return [formatShortDateRange(from, to, today), formatNearDay(from, to, today)].filter(Boolean).join(', ');
+}
 
 /** Past charges shown before "Show all". */
 const CHARGES_SHOWN = 6;
@@ -74,7 +87,7 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const money = (minor: number) => formatMoney(minor, currency);
 
   const status = statusOf(sub, today);
-  const next = nextCharge(sub, today);
+  const next = expectedCharge(sub, today);
   const ends = endsOn(sub, today);
   const price = next?.amount ?? currentPrice(sub, today);
   const cycle = next?.cycle ?? cycleOn(sub, today);
@@ -82,6 +95,7 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const cancelledOn = finalEnd(sub);
   const firstPayment = firstPaymentDate(sub);
   const reminder = sub.reminderDaysBefore;
+  const chargeWindow = sub.chargeWindowDays;
 
   const editCancellation = () => router.push({ pathname: '/subscription/cancel', params: { id: String(sub.id) } });
   const startPlan = (kind: 'resume' | 'change') =>
@@ -144,12 +158,17 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
         {next && (
           <InfoRow
             label={status === 'trial' ? 'Trial ends' : status === 'cancelled' ? 'Resumes' : 'Next charge'}
-            value={`${formatShortDate(next.date, today)}, ${formatUpcomingDay(next.date, today)}`}
+            value={
+              status === 'trial'
+                ? dueDay(next.date, next.date, today)
+                : dueDay(next.date, next.latest, today)
+            }
           />
         )}
-        {ends && <InfoRow label="Ends" value={`${formatShortDate(ends, today)}, ${formatUpcomingDay(ends, today)}`} />}
+        {ends && <InfoRow label="Ends" value={dueDay(ends, ends, today)} />}
         {stopped && <InfoRow label="Cancelled" value={formatDateKey(stopped)} />}
         <InfoRow label="Billed" value={formatCycleAdverb(cycle)} />
+        {chargeWindow > 0 && <InfoRow label="Charge day" value={`Up to ${formatChargeWindow(chargeWindow)} late`} />}
         {cycle.unit !== 'month' || cycle.count !== 1 ? (
           <InfoRow label="Per month" value={`≈ ${money(monthlyEquivalent(price, cycle))}`} />
         ) : (

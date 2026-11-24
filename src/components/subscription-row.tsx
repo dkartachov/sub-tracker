@@ -7,7 +7,7 @@ import type { DateKey } from '@/lib/dates';
 
 import { CategoryBadge } from './category-badge';
 import { PressableScale } from './pressable-scale';
-import { StatusPill } from './status-pill';
+import { DueNowPill, StatusPill } from './status-pill';
 import { ThemedText } from './themed-text';
 
 type SubscriptionRowProps = {
@@ -19,10 +19,12 @@ type SubscriptionRowProps = {
   /** On the right, e.g. the price. */
   amount: string;
   amountDetail?: string;
+  /** Marks a charge that may land any day now, beside the name. */
+  dueNow?: boolean;
 };
 
 /** A subscription in a list, opening its details. */
-export function SubscriptionRow({ sub, today, detail, amount, amountDetail }: SubscriptionRowProps) {
+export function SubscriptionRow({ sub, today, detail, amount, amountDetail, dueNow = false }: SubscriptionRowProps) {
   const status = statusOf(sub, today);
 
   return (
@@ -37,6 +39,7 @@ export function SubscriptionRow({ sub, today, detail, amount, amountDetail }: Su
             {sub.name}
           </ThemedText>
           <StatusPill status={status} />
+          {dueNow && <DueNowPill />}
         </View>
         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
           {detail}

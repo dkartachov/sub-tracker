@@ -219,6 +219,38 @@ export function nextChargeOnOrAfter(billing: Billing, from: DateKey): Charge | n
   return date ? chargeOn(billing, date) : null;
 }
 
+/**
+ * A charge that can land late: some merchants bill around a day rather than on it (the weekend
+ * after it, the next business day). It's still counted on its billing day, the earliest it can
+ * land, so totals, the chart and reminders stay put; `latest` is the last day it can land.
+ */
+export type ExpectedCharge = Charge & { latest: DateKey };
+
+/** The most days late a charge can land with `cycle`: less than its shortest cycle, so charges can't overlap. */
+export function maxChargeWindowDays(cycle: Cycle): number {
+  return SHORTEST_CYCLE_DAYS[cycle.unit] * cycle.count - 1;
+}
+
+const SHORTEST_CYCLE_DAYS: Record<CycleUnit, number> = { day: 1, week: 7, month: 28, year: 365 };
+
+function expected(charge: Charge, windowDays: number): ExpectedCharge {
+  return { ...charge, latest: addDays(charge.date, windowDays) };
+}
+
+/**
+ * The next charge still to come when charges can land up to `windowDays` late: the first whose
+ * latest day is on or after `today`, so one due a few days ago that may not have landed yet counts.
+ */
+export function nextExpectedCharge(billing: Billing, today: DateKey, windowDays: number): ExpectedCharge | null {
+  const charge = nextChargeOnOrAfter(billing, addDays(today, -windowDays));
+  return charge && expected(charge, windowDays);
+}
+
+/** Every charge that can still land from `from` to `to`, oldest first: as `chargesBetween`, plus ones due earlier that may land late. */
+export function expectedChargesBetween(billing: Billing, from: DateKey, to: DateKey, windowDays: number): ExpectedCharge[] {
+  return chargesBetween(billing, addDays(from, -windowDays), to).map((charge) => expected(charge, windowDays));
+}
+
 /** Total charged from `from` to `to`, both included. */
 export function spentBetween(billing: Billing, from: DateKey, to: DateKey): number {
   return chargesBetween(billing, from, to).reduce((sum, charge) => sum + charge.amount, 0);
@@ -259,6 +291,13 @@ export function monthlyEquivalent(amount: number, cycle: Cycle): number {
 /** "month", "3 months", "2 weeks", for "every …" or "per …". */
 export function formatCycle({ count, unit }: Cycle): string {
   return count === 1 ? unit : `${count} ${unit}s`;
+}
+
+/** How late a charge can land: "1 day", "3 days", "a week", "2 weeks". */
+export function formatChargeWindow(days: number): string {
+  if (days === 7) return 'a week';
+  if (days % 7 === 0) return `${days / 7} weeks`;
+  return days === 1 ? '1 day' : `${days} days`;
 }
 
 /** "Monthly", "Yearly", "Every 3 months". */

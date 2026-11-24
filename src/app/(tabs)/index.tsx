@@ -15,7 +15,16 @@ import { useTheme } from '@/hooks/use-theme';
 import { useToday } from '@/hooks/use-today';
 import { formatCycle } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
-import { addDays, daysBetween, formatShortDate, formatUpcomingDay, fromDateKey, type DateKey } from '@/lib/dates';
+import {
+  addDays,
+  daysBetween,
+  formatShortDate,
+  formatNearDay,
+  formatShortDateRange,
+  isWithinRange,
+  fromDateKey,
+  type DateKey,
+} from '@/lib/dates';
 import { getOverview, monthlySpending, UPCOMING_DAYS } from '@/lib/spending';
 
 /** Upcoming charges beyond this many are left to the Subscriptions tab. */
@@ -98,12 +107,13 @@ export default function OverviewScreen() {
           <ThemedText themeColor="textSecondary">No charges coming up.</ThemedText>
         ) : (
           <>
-            {overview.upcoming.slice(0, UPCOMING_SHOWN).map(({ sub, date, amount }) => (
+            {overview.upcoming.slice(0, UPCOMING_SHOWN).map(({ sub, date, latest, amount }) => (
               <SubscriptionRow
                 key={`${sub.id}-${date}`}
                 sub={sub}
                 today={today}
-                detail={`${capitalize(formatUpcomingDay(date, today))} · ${formatShortDate(date, today)}`}
+                detail={[formatShortDateRange(date, latest, today), formatNearDay(date, latest, today)].filter(Boolean).join(' · ')}
+                dueNow={isWithinRange(date, latest, today)}
                 amount={money(amount)}
               />
             ))}
@@ -171,10 +181,6 @@ function daysAgo(days: number) {
   if (days === 0) return 'today';
   if (days === 1) return 'yesterday';
   return `${days} days ago`;
-}
-
-function capitalize(text: string) {
-  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 const styles = StyleSheet.create({

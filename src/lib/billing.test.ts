@@ -3,6 +3,10 @@ import {
   chargesOn,
   cycleOn,
   endsAfter,
+  expectedChargesBetween,
+  formatChargeWindow,
+  maxChargeWindowDays,
+  nextExpectedCharge,
   newPeriodProblem,
   formatCycleAdverb,
   monthlyEquivalent,
@@ -195,5 +199,41 @@ describe('billing periods', () => {
     expect(newPeriodProblem(simpleBilling({ ...monthlyPlan, cancelledOn: '2026-03-01' }), 'resume', '2026-03-01')).toBeNull();
     expect(newPeriodProblem(monthly, 'change', '2026-01-31')).toMatch('after the current plan started');
     expect(newPeriodProblem(monthly, 'change', '2026-06-01')).toBeNull();
+  });
+});
+
+describe('charges that can land late', () => {
+  // Billed from the 16th, landing as late as the 23rd.
+  const coffee = plan({ firstPaymentDate: '2025-11-16', prices: [{ amount: 1800, effectiveDate: '2025-11-16' }] });
+
+  it('keeps a charge due a few days ago as still to come until its last day', () => {
+    expect(nextExpectedCharge(coffee, '2026-11-20', 7)).toMatchObject({ date: '2026-11-16', latest: '2026-11-23', amount: 1800 });
+    expect(nextExpectedCharge(coffee, '2026-11-23', 7)).toMatchObject({ date: '2026-11-16', latest: '2026-11-23' });
+    expect(nextExpectedCharge(coffee, '2026-11-24', 7)).toMatchObject({ date: '2026-12-16', latest: '2026-12-23' });
+  });
+
+  it('is the next charge on its day without a window', () => {
+    expect(nextExpectedCharge(coffee, '2026-11-20', 0)).toMatchObject({ date: '2026-12-16', latest: '2026-12-16' });
+  });
+
+  it('lists the ones that may still land along with the ones ahead', () => {
+    expect(expectedChargesBetween(coffee, '2026-11-20', '2026-12-31', 7).map((c) => [c.date, c.latest])).toEqual([
+      ['2026-11-16', '2026-11-23'],
+      ['2026-12-16', '2026-12-23'],
+    ]);
+  });
+
+  it('still counts each charge on its billing day', () => {
+    expect(spentBetween(coffee, '2026-11-01', '2026-11-30')).toBe(1800);
+  });
+
+  it('stays shorter than the cycle', () => {
+    expect(maxChargeWindowDays({ count: 1, unit: 'month' })).toBe(27);
+    expect(maxChargeWindowDays({ count: 1, unit: 'week' })).toBe(6);
+    expect(maxChargeWindowDays({ count: 1, unit: 'day' })).toBe(0);
+  });
+
+  it('says how late', () => {
+    expect([1, 3, 7, 14].map(formatChargeWindow)).toEqual(['1 day', '3 days', 'a week', '2 weeks']);
   });
 });

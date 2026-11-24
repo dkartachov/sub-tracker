@@ -13,6 +13,7 @@ function sub(overrides: Partial<SimpleSubscription>): Subscription {
     isTrial: false,
     cancelledOn: null,
     reminderDaysBefore: null,
+    chargeWindowDays: 0,
     notes: '',
     prices: [{ amount: 1000, effectiveDate: '2026-01-10' }],
     ...overrides,
@@ -125,4 +126,14 @@ it('totals each of the last months, this one split into charged and still to com
 it("doesn't point out a trial that turned paid once it's been cancelled", () => {
   const overview = getOverview([sub({ isTrial: true, firstPaymentDate: '2026-03-02', cancelledOn: '2026-04-02' })], TODAY);
   expect(overview.recentlyConverted).toEqual([]);
+});
+
+it('lists a charge due a few days ago that can still land, until its last day', () => {
+  const coffee = sub({ name: 'Coffee', firstPaymentDate: '2026-01-02', chargeWindowDays: 7 });
+  const { upcoming } = getOverview([coffee], '2026-03-05');
+  expect(upcoming.map((c) => [c.date, c.latest])).toEqual([
+    ['2026-03-02', '2026-03-09'],
+    ['2026-04-02', '2026-04-09'],
+  ]);
+  expect(getOverview([coffee], '2026-03-10').upcoming.map((c) => c.date)).toEqual(['2026-04-02']);
 });

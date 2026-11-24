@@ -10,6 +10,7 @@ const gym: SubscriptionInput = {
   firstPaymentDate: '2026-01-01',
   isTrial: false,
   reminderDaysBefore: null,
+  chargeWindowDays: 0,
   notes: '',
 };
 

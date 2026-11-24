@@ -24,7 +24,14 @@ import {
   type SubscriptionInput,
 } from '@/db/subscriptions';
 import { useTheme } from '@/hooks/use-theme';
-import { firstPaymentDate as firstPaymentOf, lastPeriod, type CycleUnit } from '@/lib/billing';
+import {
+  firstPaymentDate as firstPaymentOf,
+  formatChargeWindow,
+  lastPeriod,
+  maxChargeWindowDays,
+  type Cycle,
+  type CycleUnit,
+} from '@/lib/billing';
 import { currencyDecimals, moneyPlaceholder, parseMoney, useCurrency } from '@/lib/currency';
 import { formatDateKey, todayKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
@@ -34,6 +41,20 @@ const REMINDER_OPTIONS = [-1, 0, 1, 3, 7] as const;
 type ReminderOption = (typeof REMINDER_OPTIONS)[number];
 
 const DEFAULT_REMINDER_DAYS = 3;
+
+/** How late a charge can land, in days: for ones billed around a day rather than on it. */
+const CHARGE_WINDOW_OPTIONS = [0, 3, 7, 14];
+
+/** The choices that fit `cycle` (a window can't be as long as a cycle), keeping one already saved. */
+function chargeWindowOptions(cycle: Cycle | null, saved: number) {
+  const max = cycle ? maxChargeWindowDays(cycle) : 0;
+  const options = saved > 0 && !CHARGE_WINDOW_OPTIONS.includes(saved) ? [...CHARGE_WINDOW_OPTIONS, saved] : CHARGE_WINDOW_OPTIONS;
+  return options.filter((days) => days <= max).sort((a, b) => a - b);
+}
+
+function chargeWindowLabel(days: number) {
+  return days === 0 ? 'On the day' : `Up to ${formatChargeWindow(days)} late`;
+}
 
 function reminderLabel(days: ReminderOption) {
   if (days === -1) return 'Off';
@@ -68,6 +89,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const [reminder, setReminder] = useState<ReminderOption>(
     existing ? ((existing.reminderDaysBefore ?? -1) as ReminderOption) : DEFAULT_REMINDER_DAYS
   );
+  const [chargeWindow, setChargeWindow] = useState(existing?.chargeWindowDays ?? 0);
   const [notes, setNotes] = useState(existing?.notes ?? '');
   const [saving, setSaving] = useState(false);
 
@@ -79,6 +101,9 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const firstPaymentValid = firstPeriodEnd === null || firstPaymentDate < firstPeriodEnd;
   const valid = name.trim() !== '' && cycle !== null && firstPaymentValid && (existing !== undefined || price !== null);
   const suggestions = existing ? [] : suggestTemplates(name);
+  const windowOptions = chargeWindowOptions(cycle, existing?.chargeWindowDays ?? 0);
+  // A daily plan, or a window left too long by a shorter cycle, charges on the day.
+  const chargeWindowDays = windowOptions.includes(chargeWindow) ? chargeWindow : 0;
 
   const applyTemplate = (template: SubscriptionTemplate) => {
     setName(template.name);
@@ -97,6 +122,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
       firstPaymentDate,
       isTrial,
       reminderDaysBefore: reminder === -1 ? null : reminder,
+      chargeWindowDays,
       notes: notes.trim(),
     };
     try {
@@ -192,6 +218,17 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
           )
         )}
       </Field>
+
+      {windowOptions.length > 1 && (
+        <Field label="Charged">
+          <ChipGroup options={windowOptions} value={chargeWindowDays} onChange={setChargeWindow} label={chargeWindowLabel} />
+          <ThemedText type="small" themeColor="textSecondary">
+            {chargeWindowDays === 0
+              ? 'For ones that charge around a day, not on it (the weekend after, say), pick how late it can be.'
+              : `Set ${isTrial ? 'the trial end' : 'the first payment'} to the earliest day it charges. Each charge is shown as due up to ${formatChargeWindow(chargeWindowDays)} after that, and reminders come before the earliest day.`}
+          </ThemedText>
+        </Field>
+      )}
 
       <Field label="Category">
         <ChipGroup

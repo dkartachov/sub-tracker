@@ -27,9 +27,9 @@ import { fromDateKey, toDateKey, type DateKey } from './dates';
 /**
  * Changes whenever the format does, so an older app can refuse a backup it can't read. Version 1
  * had one billing cycle per subscription (`firstPaymentDate`, `cycle`, `cancelledOn`) where
- * version 2 has `periods`; both restore.
+ * version 2 has `periods`. Version 3 adds `chargeWindowDays`, 0 for older ones. All three restore.
  */
-export const BACKUP_VERSION = 2;
+export const BACKUP_VERSION = 3;
 
 const BACKUP_APP = 'subtracker';
 
@@ -112,7 +112,7 @@ function parsePeriods(periods: unknown, label: string): BillingPeriod[] {
 function parseSubscription(value: unknown, index: number, version: number): BackupSubscription {
   const where = `Subscription ${index + 1}`;
   if (!isObject(value)) fail(`${where} is unreadable.`);
-  const { name, category, isTrial, reminderDaysBefore, notes, prices } = value;
+  const { name, category, isTrial, reminderDaysBefore, chargeWindowDays, notes, prices } = value;
 
   if (typeof name !== 'string' || name.trim() === '') fail(`${where} has no name.`);
   const label = `“${name}”`;
@@ -130,6 +130,9 @@ function parseSubscription(value: unknown, index: number, version: number): Back
   if (typeof isTrial !== 'boolean') fail(`${label} doesn't say whether it's a trial.`);
   if (reminderDaysBefore !== null && (typeof reminderDaysBefore !== 'number' || !Number.isInteger(reminderDaysBefore) || reminderDaysBefore < 0)) {
     fail(`${label} has an unreadable reminder.`);
+  }
+  if (version >= 3 && (typeof chargeWindowDays !== 'number' || !Number.isInteger(chargeWindowDays) || chargeWindowDays < 0)) {
+    fail(`${label} has an unreadable charge day.`);
   }
   if (typeof notes !== 'string') fail(`${label} has unreadable notes.`);
   if (!Array.isArray(prices) || prices.length === 0) fail(`${label} has no price.`);
@@ -153,6 +156,7 @@ function parseSubscription(value: unknown, index: number, version: number): Back
     isTrial,
     periods,
     reminderDaysBefore: reminderDaysBefore as number | null,
+    chargeWindowDays: version >= 3 ? (chargeWindowDays as number) : 0,
     notes,
     prices: parsedPrices,
   };
@@ -168,7 +172,7 @@ export function parseBackup(text: string): Backup {
   }
   if (!isObject(data) || data.app !== BACKUP_APP) fail("This isn't a Subtracker backup.");
   const { version } = data;
-  if (version !== 1 && version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
+  if (version !== 1 && version !== 2 && version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
   if (!CURRENCIES.includes(data.currency as Currency)) fail('This backup has an unknown currency.');
   if (!Array.isArray(data.subscriptions)) fail('This backup has no subscriptions list.');
 

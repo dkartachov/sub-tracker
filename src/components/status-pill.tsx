@@ -6,6 +6,18 @@ import { useTheme } from '@/hooks/use-theme';
 
 import { ThemedText } from './themed-text';
 
+/** "Due now", for a charge that may land any day now (today is inside its range). */
+export function DueNowPill() {
+  const theme = useTheme();
+  return (
+    <View style={[styles.pill, { backgroundColor: theme.tintSoft }]}>
+      <ThemedText type="eyebrow" themeColor="tint" style={styles.text}>
+        Due now
+      </ThemedText>
+    </View>
+  );
+}
+
 /** "Trial" or "Cancelled"; active subscriptions show nothing. */
 export function StatusPill({ status }: { status: SubscriptionStatus }) {
   const theme = useTheme();

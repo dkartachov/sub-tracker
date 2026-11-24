@@ -5,6 +5,9 @@
  *
  * Each subscription gets its next few reminders scheduled, so they keep coming for a while even if
  * the app isn't opened.
+ *
+ * One whose charges can land a few days late (`chargeWindowDays`) is reminded before the earliest
+ * day, so the reminder never comes after the charge, and says the last day it can land.
  */
 import * as Notifications from 'expo-notifications';
 import { AndroidImportance } from 'expo-notifications';
@@ -65,15 +68,19 @@ export function planReminders(
 
       const amount = formatMoney(priceOn(sub.prices, paymentDate), currency);
       const isTrialEnd = sub.isTrial && paymentDate === firstPaymentDate(sub);
+      const lateDays = isTrialEnd ? 0 : sub.chargeWindowDays;
+      const when = daysBefore === 0 ? 'today' : `on ${formatPaymentDay(paymentDate)}`;
       planned.push({
         // Holds everything the notification says, so any edit replaces it with a fresh one.
-        identifier: ['renewal', sub.id, paymentDate, daysBefore, timeKey(time), amount, sub.name].join('|'),
+        identifier: ['renewal', sub.id, paymentDate, daysBefore, lateDays, timeKey(time), amount, sub.name].join('|'),
         date,
         subscriptionId: sub.id,
         title: isTrialEnd ? `${sub.name} trial ends ${dayPhrase(daysBefore)}` : `${sub.name} renews ${dayPhrase(daysBefore)}`,
         body: isTrialEnd
           ? `You'll be charged ${amount} unless you cancel.`
-          : `${amount} will be charged ${daysBefore === 0 ? 'today' : `on ${formatPaymentDay(paymentDate)}`}.`,
+          : lateDays === 0
+            ? `${amount} will be charged ${when}.`
+            : `${amount} will be charged from ${daysBefore === 0 ? 'today' : formatPaymentDay(paymentDate)}, by ${formatPaymentDay(addDays(paymentDate, lateDays))} at the latest.`,
       });
       if (++count >= REMINDERS_PER_SUBSCRIPTION) break;
     }

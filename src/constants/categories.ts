@@ -9,6 +9,7 @@ export const CATEGORIES = [
   'news',
   'cloud',
   'utilities',
+  'food',
   'other',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -29,6 +30,7 @@ export const CATEGORY_INFO: Record<Category, CategoryInfo> = {
   news: { label: 'News', icon: { ios: 'newspaper.fill', android: 'newspaper' }, color: '#978365' },
   cloud: { label: 'Cloud', icon: { ios: 'icloud.fill', android: 'cloud' }, color: '#0090FF' },
   utilities: { label: 'Utilities', icon: { ios: 'bolt.fill', android: 'bolt' }, color: '#F76B15' },
+  food: { label: 'Food & groceries', icon: { ios: 'cart.fill', android: 'shopping_cart' }, color: '#12A594' },
   other: { label: 'Other', icon: { ios: 'square.grid.2x2.fill', android: 'category' }, color: '#8B8D98' },
 };
 

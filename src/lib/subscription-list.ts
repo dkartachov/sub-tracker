@@ -1,6 +1,6 @@
 /** How the Subscriptions tab filters and orders its list. Pure, apart from the saved sort order. */
 import { CATEGORY_INFO } from '@/constants/categories';
-import { currentPrice, endsOn, nextCharge, statusOf, type Subscription } from '@/db/subscriptions';
+import { currentPrice, endsOn, expectedCharge, statusOf, type Subscription } from '@/db/subscriptions';
 
 import { cycleOn, firstPaymentDate, monthlyEquivalent, stoppedSince, type Cycle } from './billing';
 import type { DateKey } from './dates';
@@ -23,7 +23,8 @@ export const useSubscriptionSort = sortSetting.use;
 
 export type ListedSubscription = {
   sub: Subscription;
-  next: { date: DateKey; amount: number; cycle: Cycle; isTrialEnd: boolean } | null;
+  /** The next charge still to come, with the last day it can land (see `chargeWindowDays`). */
+  next: { date: DateKey; latest: DateKey; amount: number; cycle: Cycle; isTrialEnd: boolean } | null;
   /** When one cancelled for a later day stops. */
   ends: DateKey | null;
   /** What it charges per cycle: the next charge's price, else today's. */
@@ -56,7 +57,7 @@ export function arrangeSubscriptions(subs: Subscription[], today: DateKey, sort:
   const listed = subs
     .filter((sub) => matchesQuery(sub, query))
     .map((sub): ListedSubscription => {
-      const next = nextCharge(sub, today);
+      const next = expectedCharge(sub, today);
       return {
         sub,
         next: next && { ...next, isTrialEnd: statusOf(sub, today) === 'trial' && next.date === firstPaymentDate(sub) },

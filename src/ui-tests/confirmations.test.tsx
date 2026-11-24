@@ -61,6 +61,7 @@ const netflix: SubscriptionInput = {
   firstPaymentDate: '2026-01-15',
   isTrial: false,
   reminderDaysBefore: 3,
+  chargeWindowDays: 0,
   notes: '',
 };
 

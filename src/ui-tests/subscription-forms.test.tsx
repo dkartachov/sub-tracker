@@ -50,6 +50,7 @@ const netflix: SubscriptionInput = {
   firstPaymentDate: '2026-01-15',
   isTrial: false,
   reminderDaysBefore: 3,
+  chargeWindowDays: 0,
   notes: '',
 };
 
@@ -216,4 +217,22 @@ it('changes plan to yearly, and not to the plan it already has', async () => {
   expect(sub.periods[1]).toMatchObject({ cycle: { count: 1, unit: 'year' }, end: null });
   expect(sub.periods[0].end).toBe(sub.periods[1].start);
   expect(sub.prices.at(-1)!.amount).toBe(9900);
+});
+
+it('saves how late a charge can land, offering only what fits the cycle', async () => {
+  await renderScreen(<EditSubscriptionScreen />);
+
+  await fireEvent.changeText(screen.getByPlaceholderText('Netflix, climbing gym…'), 'Coffee');
+  await fireEvent.changeText(screen.getByPlaceholderText('12.99'), '18');
+  await fireEvent.press(screen.getByText('Up to a week late'));
+  expect(screen.getByText(/earliest day it charges/)).toBeTruthy();
+
+  // A week is as long as a weekly cycle, so it falls back to the day.
+  await fireEvent.press(screen.getByText('week'));
+  expect(screen.queryByText('Up to a week late')).toBeNull();
+  await fireEvent.press(screen.getByText('month'));
+
+  await fireEvent.press(screen.getByText('Add subscription'));
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  expect((await getSubscriptions(mockDb))[0].chargeWindowDays).toBe(7);
 });

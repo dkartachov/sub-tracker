@@ -13,6 +13,7 @@ function sub(overrides: Partial<SimpleSubscription>): Subscription {
     isTrial: false,
     cancelledOn: null,
     reminderDaysBefore: null,
+    chargeWindowDays: 0,
     notes: '',
     prices: [{ amount: 1000, effectiveDate: '2026-01-10' }],
     ...overrides,

@@ -16,7 +16,7 @@ import { useSubscriptions } from '@/db/subscriptions';
 import { useToday } from '@/hooks/use-today';
 import { formatCycle } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
-import { formatShortDate, formatUpcomingDay } from '@/lib/dates';
+import { formatShortDate, formatUpcomingDay, formatUpcomingWindow } from '@/lib/dates';
 import {
   arrangeSubscriptions,
   setSubscriptionSort,
@@ -87,7 +87,7 @@ export default function SubscriptionsScreen() {
               today={today}
               detail={
                 next
-                  ? `${next.isTrialEnd ? 'Trial ends' : 'Renews'} ${formatUpcomingDay(next.date, today)}${ends ? `, ends ${formatShortDate(ends, today)}` : ''}`
+                  ? `${next.isTrialEnd ? `Trial ends ${formatUpcomingDay(next.date, today)}` : `Renews ${formatUpcomingWindow(next.date, next.latest, today)}`}${ends ? `, ends ${formatShortDate(ends, today)}` : ''}`
                   : ends
                     ? `Ends ${formatUpcomingDay(ends, today)}, no more charges`
                     : ''
@@ -108,7 +108,7 @@ export default function SubscriptionsScreen() {
               today={today}
               detail={
                 next
-                  ? `Cancelled, resumes ${formatUpcomingDay(next.date, today)}`
+                  ? `Cancelled, resumes ${formatUpcomingWindow(next.date, next.latest, today)}`
                   : `Cancelled ${formatShortDate(stopped!, today)}`
               }
               amount={money(price)}

@@ -45,3 +45,11 @@ it('moves each subscription billing into a period when migrating from version 1'
   expect(columns).not.toContain('cancelled_on');
   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM price_changes').get()).toEqual({ n: 2 });
 });
+
+it('charges existing subscriptions on the day when adding charge windows', async () => {
+  const { createTestDb } = jest.requireActual<typeof import('@/test-utils/sqlite')>('@/test-utils/sqlite');
+  const db = await createTestDb();
+  await db.runAsync("INSERT INTO subscriptions (name, category, notes, created_at) VALUES ('Netflix', 'streaming', '', '')");
+  expect(await db.getFirstAsync('SELECT charge_window_days FROM subscriptions')).toEqual({ charge_window_days: 0 });
+  await expect(db.runAsync('UPDATE subscriptions SET charge_window_days = -1')).rejects.toThrow();
+});

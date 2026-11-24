@@ -2,10 +2,18 @@
 import type { Category } from '@/constants/categories';
 import { nextCharge, statusOf, trialWontConvert, type Subscription } from '@/db/subscriptions';
 
-import { chargeOn, chargesBetween, firstPaymentDate, monthlyEquivalent, spentBetween, type Charge } from './billing';
+import {
+  chargeOn,
+  chargesBetween,
+  expectedChargesBetween,
+  firstPaymentDate,
+  monthlyEquivalent,
+  spentBetween,
+  type ExpectedCharge,
+} from './billing';
 import { addDays, addMonthsClamped, type DateKey } from './dates';
 
-export type UpcomingCharge = Charge & { sub: Subscription };
+export type UpcomingCharge = ExpectedCharge & { sub: Subscription };
 
 export type Overview = {
   /**
@@ -19,7 +27,10 @@ export type Overview = {
   trialCount: number;
   /** Charged so far this calendar year, up to and including today. */
   spentThisYear: number;
-  /** Charges in the next `UPCOMING_DAYS`, soonest first. */
+  /**
+   * Charges in the next `UPCOMING_DAYS`, soonest first, and ones due in the last few days that may
+   * still land (see `chargeWindowDays`).
+   */
   upcoming: UpcomingCharge[];
   /** Trials converting to paid soon, soonest first. */
   trialsEnding: UpcomingCharge[];
@@ -53,10 +64,16 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
   }
 
   const upcoming = subs
-    .flatMap((sub) => chargesBetween(sub, today, upcomingEnd).map((charge) => ({ sub, ...charge })))
+    .flatMap((sub) =>
+      expectedChargesBetween(sub, today, upcomingEnd, sub.chargeWindowDays).map((charge) => ({ sub, ...charge }))
+    )
     .sort((a, b) => a.date.localeCompare(b.date) || a.sub.name.localeCompare(b.sub.name));
 
-  const firstCharge = (sub: Subscription): UpcomingCharge => ({ sub, ...chargeOn(sub, firstPaymentDate(sub)) });
+  // A trial ends on its day, even if the charge it turns into can land later.
+  const firstCharge = (sub: Subscription): UpcomingCharge => {
+    const charge = chargeOn(sub, firstPaymentDate(sub));
+    return { sub, ...charge, latest: charge.date };
+  };
 
   const trialsEnding = running
     .filter((sub) => statusOf(sub, today) === 'trial' && !trialWontConvert(sub))

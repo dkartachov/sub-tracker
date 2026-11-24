@@ -57,6 +57,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE subscriptions DROP COLUMN cycle_unit;
   ALTER TABLE subscriptions DROP COLUMN cancelled_on;
   `,
+  // For ones billed around a day rather than on it: each charge can land up to this many days after
+  // its billing day. 0 for an exact day.
+  `
+  ALTER TABLE subscriptions ADD COLUMN charge_window_days INTEGER NOT NULL DEFAULT 0 CHECK (charge_window_days >= 0);
+  `,
 ];
 
 /** The `user_version` of a fully migrated database. */
