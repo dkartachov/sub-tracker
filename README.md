@@ -78,6 +78,22 @@ Logic tests sit next to the code they test. Tests that render and drive screens 
 
 The text lives in `src/lib/privacy-policy.ts`, shown in the app under Settings > Privacy policy. `site/build.mjs` (Node 24, `node site/build.mjs`) turns the same text into `site/dist/index.html`, and `.github/workflows/pages.yml` publishes it to GitHub Pages whenever it changes on `main`. That page is the URL for the Play Store listing. Update the policy when the app starts storing or sending something new.
 
+### Play Console declarations
+
+The Play Console's App content answers have to match the app and the policy. Update them in the same release as the change. Today they are:
+
+- **Data safety**: collects data, encrypted in transit, no accounts. Device or other IDs (App functionality, Analytics) and Crash logs (Analytics), both collected and not shared, required, not ephemeral. All of it comes from `expo-updates`, which sends Expo an installation ID and failed-update details ([Expo's guide](https://docs.expo.dev/eas-update/store-privacy-declarations.md)). Exports through the share sheet are user-initiated, so they aren't declared.
+- **Financial features**: "My app doesn't provide any financial features". Subtracker only records what you type in.
+
+Check them again when:
+
+- **A dependency is added or upgraded** (`npx expo install`, or an SDK upgrade): look for the library's Play data safety notes. Analytics, crash reporting and ads SDKs always change Data safety.
+- **Data starts leaving the phone**: cloud sync, accounts, Auto Backup (`android.allowBackup`), bank or card syncing. Update Data safety and the policy, and with accounts, the account deletion answers too.
+- **Money starts moving or being read from a bank**: bank or card syncing, payments. Update Financial features. In-app purchases are declared elsewhere, but may change Data safety.
+- **A new permission is added** (location, camera, contacts): update Data safety, and the policy's "What Subtracker does not do".
+
+Whenever the policy text changes, update `POLICY_UPDATED` too. Pushing to `main` republishes the page.
+
 ## Icons
 
 `npm run icons` draws every icon, the splash image and the notification icon into `assets/images` from `scripts/make-icons.mjs`. The script has no dependencies, so edit the drawing there and run it again.
