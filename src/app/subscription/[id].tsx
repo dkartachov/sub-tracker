@@ -1,12 +1,13 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { CategoryBadge } from '@/components/category-badge';
+import { showDialog } from '@/components/dialog';
 import { PageHeader } from '@/components/page-header';
 import { PressableScale } from '@/components/pressable-scale';
 import { ScrollView } from '@/components/scroll-view';
@@ -90,23 +91,26 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const canChangePlan = cancelledOn === null || cancelledOn > today;
 
   const remove = () =>
-    Alert.alert(`Delete ${sub.name}?`, 'Its price history goes too, and it drops out of what you spent. To keep that, mark it cancelled instead.', [
-      { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
+    showDialog({
+      title: `Delete ${sub.name}?`,
+      message: 'Its price history goes too, and it drops out of what you spent. To keep that, mark it cancelled instead.',
+      cancelLabel: 'Keep it',
+      confirm: {
+        label: 'Delete',
         onPress: async () => {
           await deleteSubscription(db, sub.id);
           router.back();
         },
       },
-    ]);
+    });
 
   const removePriceChange = (effectiveDate: string, amount: number) =>
-    Alert.alert('Remove this price change?', `${money(amount)} from ${formatDateKey(effectiveDate)}`, [
-      { text: 'Keep', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => deletePriceChange(db, sub.id, effectiveDate) },
-    ]);
+    showDialog({
+      title: 'Remove this price change?',
+      message: `${money(amount)} from ${formatDateKey(effectiveDate)}`,
+      cancelLabel: 'Keep',
+      confirm: { label: 'Remove', onPress: () => deletePriceChange(db, sub.id, effectiveDate) },
+    });
 
   // Newest first, each with the price before it.
   const history = sub.prices.map((change, i) => ({ ...change, previous: sub.prices[i - 1]?.amount })).reverse();
@@ -314,16 +318,15 @@ function BillingHistory({ sub, today }: { sub: Subscription; today: DateKey }) {
   const remove = (period: BillingPeriod, i: number) => {
     const previous = sub.periods[i - 1];
     const what = previous.end === period.start ? 'plan change' : 'resume';
-    Alert.alert(
-      `Remove this ${what}?`,
-      what === 'resume'
-        ? `It goes back to being cancelled from ${formatDateKey(previous.end!)}. Price changes stay.`
-        : 'The plan before it carries on instead. Price changes stay.',
-      [
-        { text: 'Keep', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => deletePeriod(db, sub.id, period.start) },
-      ]
-    );
+    showDialog({
+      title: `Remove this ${what}?`,
+      message:
+        what === 'resume'
+          ? `It goes back to being cancelled from ${formatDateKey(previous.end!)}. Price changes stay.`
+          : 'The plan before it carries on instead. Price changes stay.',
+      cancelLabel: 'Keep',
+      confirm: { label: 'Remove', onPress: () => deletePeriod(db, sub.id, period.start) },
+    });
   };
 
   const periods = sub.periods.map((period, i) => ({ period, i })).reverse();

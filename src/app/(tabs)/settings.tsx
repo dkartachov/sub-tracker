@@ -3,10 +3,11 @@ import { getPermissionsAsync, type NotificationPermissionsStatus } from 'expo-no
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, AppState, Linking, Share } from 'react-native';
+import { AppState, Linking, Share } from 'react-native';
 
 import { Button } from '@/components/button';
 import { ChipGroup } from '@/components/chip-group';
+import { showDialog } from '@/components/dialog';
 import { Screen } from '@/components/screen';
 import { InfoRow, Section } from '@/components/section';
 import { ThemedText } from '@/components/themed-text';
@@ -76,7 +77,7 @@ function BackupActions() {
       await Share.share({ title, message: await message() }, { dialogTitle: title });
     } catch (error) {
       console.warn(error);
-      Alert.alert("Couldn't export", 'Something went wrong. Try again.');
+      showDialog({ title: "Couldn't export", message: 'Something went wrong. Try again.' });
     }
   };
 

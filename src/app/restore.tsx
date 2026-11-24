@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useState } from 'react';
-import { Alert, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { Button } from '@/components/button';
+import { showDialog } from '@/components/dialog';
 import { Field, TextField } from '@/components/field';
 import { FormScreen } from '@/components/form-screen';
 import { PageHeader } from '@/components/page-header';
@@ -58,14 +59,12 @@ export default function RestoreScreen() {
     };
 
     if (current === 0) return apply();
-    Alert.alert(
-      `Replace ${count(current)}?`,
-      `Everything in the app is replaced with the backup's ${count(backup.subscriptions.length)}. This can't be undone.`,
-      [
-        { text: 'Keep mine', style: 'cancel' },
-        { text: 'Replace', style: 'destructive', onPress: apply },
-      ]
-    );
+    showDialog({
+      title: `Replace ${count(current)}?`,
+      message: `Everything in the app is replaced with the backup's ${count(backup.subscriptions.length)}. This can't be undone.`,
+      cancelLabel: 'Keep mine',
+      confirm: { label: 'Replace', onPress: apply },
+    });
   };
 
   return (

@@ -6,9 +6,11 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
 import { DevVariantLabel } from '@/components/dev-variant-label';
+import { DialogHost } from '@/components/dialog';
 import { ReminderScheduler } from '@/components/reminder-scheduler';
-import { WidgetSync } from '@/components/widget-sync';
 import { StackHeader } from '@/components/stack-header';
+import { UpdatePrompt } from '@/components/update-prompt';
+import { WidgetSync } from '@/components/widget-sync';
 import { Colors, DISPLAY_FONT_FACES } from '@/constants/theme';
 import { DATABASE_NAME, migrateDbIfNeeded } from '@/db/schema';
 import { applySavedThemePreference, useColorScheme } from '@/lib/theme-preference';
@@ -64,6 +66,7 @@ function RootNavigator() {
     <>
       <ReminderScheduler />
       <WidgetSync />
+      <UpdatePrompt />
       <ThemeProvider value={navigationTheme}>
         <StatusBar style="auto" />
         <Stack screenOptions={{ header: (props) => <StackHeader {...props} /> }}>
@@ -73,8 +76,10 @@ function RootNavigator() {
           <Stack.Screen name="subscription/price-change" options={{ presentation: 'modal' }} />
           <Stack.Screen name="subscription/cancel" options={{ presentation: 'modal' }} />
           <Stack.Screen name="subscription/plan" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="restore" options={{ presentation: 'modal' }} />
+          {/* Not a modal, because iOS can't show its confirmation dialog over one. */}
+          <Stack.Screen name="restore" />
         </Stack>
+        <DialogHost />
         <DevVariantLabel />
       </ThemeProvider>
     </>
