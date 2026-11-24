@@ -38,8 +38,9 @@ npx eas-cli@latest update:configure   # adds updates.url to app.json
 - **Charge history**: each subscription lists the charges it has made.
 - **Renewal reminders**: a local notification at a time picked in Settings (9:00 by default), 0, 1, 3 or 7 days before each charge, set per subscription. Trials get a "trial ends" reminder before they convert.
 - **Price history**: "Change price" on a subscription records a new price from a given day on. Past charges keep the old price, so totals stay correct, and an announced future increase can be entered early.
+- **Tax**: Settings has a tax region (EU countries, the UK, Switzerland, Norway, Australia, New Zealand, Japan, Canadian provinces, the US with a typed rate) that fills in the tax rate of new subscriptions, and whether prices include it (VAT, GST) or it's added on top (US and Canadian sales tax). Each subscription keeps its own rate, editable in its form. Tax added on top is in every amount shown and counted: totals, the chart, reminders, the widget and the CSV. The price history keeps prices as typed. Changing the region offers to move the subscriptions still on the old default over to it. The rates are in `src/constants/tax-regions.ts`, as of `TAX_RATES_CHECKED`: update them there when a country changes its rate.
 - **One currency**, picked in Settings. Changing it doesn't convert amounts. Yen prices are whole amounts.
-- **Backup**: Settings exports a backup as text through the share sheet (to Drive, email, a notes app), restored by pasting it back in, and a CSV for spreadsheets. Backups from before billing periods (format version 1) and from before charge windows (version 2) still restore.
+- **Backup**: Settings exports a backup as text through the share sheet (to Drive, email, a notes app), restored by pasting it back in, and a CSV for spreadsheets. Backups from before billing periods (format version 1), before charge windows (version 2) and before tax (version 3) still restore, older ones without tax.
 - **Home-screen widget** ("Next charges", 4×2, resizable): the monthly total and the next three charges. Its layout (`src/widgets/upcoming-widget.tsx`) runs in the widget's own runtime and can't read the database, so `WidgetSync` pushes the numbers with `updateSnapshot` (from `src/lib/widget-snapshot.ts`) whenever the subscriptions or currency change, at midnight while the app is open, and when it goes to the background. Between launches it shows what it was last sent, with dates rather than "tomorrow" so it doesn't go wrong overnight. Tapping it doesn't open the app yet: `expo-widgets` 58 has no tap-to-launch action on Android.
 
 ## Later: features that need native code
@@ -53,7 +54,7 @@ Their native modules are already in the build (`expo-file-system`, `expo-sharing
 
 Three tables, in `src/db/schema.ts`:
 
-- `subscriptions`: name, category, `is_trial`, `reminder_days_before` (null when off), `charge_window_days` (how many days after its billing day a charge can land, 0 for on the day) and notes.
+- `subscriptions`: name, category, `is_trial`, `reminder_days_before` (null when off), `charge_window_days` (how many days after its billing day a charge can land, 0 for on the day), `tax_rate` (thousandths of a percent: 21% is 21000), `price_includes_tax` and notes.
 - `billing_periods`: `start_date` (the period's first charge), billing cycle (`cycle_count` × `cycle_unit`: day/week/month/year) and `end_date` (null while it runs on). Every subscription has at least one. A resume after a cancellation adds one starting later than the last one ended; a plan change ends the current one on the day the new one starts.
 - `price_changes`: `amount` (hundredths of the currency unit, for every currency, yen included) and the `effective_date` it applies from. Every subscription has at least one: the first covers every charge up to the next change.
 
@@ -62,6 +63,7 @@ The rules (all in `src/lib/billing.ts`):
 - Each billing period charges on its `start_date` and then every cycle after it, until its `end_date` or the next period's start, whichever is first. Each date is computed from the period's start, so monthly plans keep their day: from Jan 31 they charge Feb 28, then Mar 31.
 - A charge costs the latest price whose `effective_date` is on or before the charge date. Prices run across periods.
 - The last period's `end_date` is the cancellation. Until that day it's still running (it "ends" then), and from it on it's cancelled, until a later period starts. Marking a subscription cancelled keeps its history in the totals; deleting it removes the history too.
+- A charge costs its price plus tax when `price_includes_tax` is off, rounded to the cent per charge (`withTax` in `src/lib/tax.ts`). That's the `amount` of every `Charge`. With tax included, the price is what's paid and the tax is only shown. The rate is the subscription's, not a dated history, so changing it changes past charges too.
 - A trial is `is_trial` with its first period's `start_date` still in the future.
 - With `charge_window_days`, each charge is still dated on its billing day, the earliest it can land, for totals, the chart and reminders. Only what's shown as still to come allows for it landing late (`nextExpectedCharge`, `expectedChargesBetween`). A trial still ends on its day.
 - The add and edit form sets the first period's start and the last period's cycle, which for a subscription with one period is simply its billing.
@@ -70,7 +72,7 @@ Reminders follow the database: `ReminderScheduler` reschedules them whenever the
 
 Screens read today's date from `useToday` (`src/hooks/use-today.ts`), never `todayKey()` while rendering, so they move on at midnight while the app is open.
 
-Settings other than the currency and theme (reminder time, list sort order) go through `storedSetting` in `src/lib/stored-setting.ts`.
+Settings other than the currency and theme (reminder time, list sort order, tax region and typed tax rate) go through `storedSetting` in `src/lib/stored-setting.ts`.
 
 ## Tests
 
@@ -84,7 +86,7 @@ The text lives in `src/lib/privacy-policy.ts`, shown in the app under Settings >
 
 The Play Console's App content answers have to match the app and the policy. Update them in the same release as the change. Today they are:
 
-- **Data safety**: collects data, encrypted in transit, no accounts. Device or other IDs (App functionality, Analytics) and Crash logs (Analytics), both collected and not shared, required, not ephemeral. All of it comes from `expo-updates`, which sends Expo an installation ID and failed-update details ([Expo's guide](https://docs.expo.dev/eas-update/store-privacy-declarations.md)). Exports through the share sheet are user-initiated, so they aren't declared.
+- **Data safety**: collects data, encrypted in transit, no accounts. Device or other IDs (App functionality, Analytics) and Crash logs (Analytics), both collected and not shared, required, not ephemeral. All of it comes from `expo-updates`, which sends Expo an installation ID and failed-update details ([Expo's guide](https://docs.expo.dev/eas-update/store-privacy-declarations.md)). Exports through the share sheet are user-initiated, so they aren't declared. The tax region is picked in Settings and never leaves the phone, so it isn't collected location: Data safety only counts data sent off the device. Detecting it with GPS or a location permission, or sending it anywhere, would change that.
 - **Financial features**: "My app doesn't provide any financial features". Subtracker only records what you type in.
 
 Check them again when:
@@ -95,6 +97,16 @@ Check them again when:
 - **A new permission is added** (location, camera, contacts): update Data safety, and the policy's "What Subtracker does not do".
 
 Whenever the policy text changes, update `POLICY_UPDATED` too. Pushing to `main` republishes the page.
+
+## Updating tax rates
+
+The rates in `src/constants/tax-regions.ts` are plain data, so a change ships as an over-the-air update (`npm run update:prod`) without a store release. Check them every quarter (rate changes usually take effect on Jan 1, Apr 1, Jul 1 or Oct 1):
+
+1. Check each rate against the official source: for the EU, the European Commission's "VAT rates applied in the Member States" and its Taxes in Europe Database; the national tax authorities for the UK, Switzerland, Norway, Australia, New Zealand and Japan; the Canada Revenue Agency for GST/HST, Revenu Québec for the QST, and the BC, Manitoba and Saskatchewan finance ministries for PST/RST on digital services. Use the standard rate for digital services in force today, not an announced one.
+2. Change the rate, and set `TAX_RATES_CHECKED` to this month even when nothing changed.
+3. Run the tests: `src/lib/tax.test.ts` checks the table is valid.
+
+Subscriptions keep the rate they were given. When an update changes the rate of someone's region, `TaxRateCheck` (in the root layout) asks once whether to move the subscriptions still on the old rate over to it.
 
 ## Icons
 

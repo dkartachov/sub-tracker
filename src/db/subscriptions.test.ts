@@ -15,9 +15,11 @@ import {
   startPeriod,
   statusOf,
   trialWontConvert,
+  replaceTax,
   updateSubscription,
   type SubscriptionInput,
 } from './subscriptions';
+import { NO_TAX } from '@/lib/tax';
 
 const netflix: SubscriptionInput = {
   name: 'Netflix',
@@ -27,6 +29,7 @@ const netflix: SubscriptionInput = {
   isTrial: false,
   reminderDaysBefore: 3,
   chargeWindowDays: 0,
+  tax: NO_TAX,
   notes: '',
 };
 
@@ -194,6 +197,33 @@ it('edits the first period start and the latest cycle', async () => {
     ['2026-01-10', month],
     ['2026-04-15', { count: 2, unit: 'year' }],
   ]);
+});
+
+it('saves its tax and charges it on top', async () => {
+  const db = await createTestDb();
+  const id = await createSubscription(db, { ...netflix, tax: { rate: 13_000, included: false } }, 1000);
+  const sub = (await getSubscription(db, id))!;
+  expect(sub.tax).toEqual({ rate: 13_000, included: false });
+  expect(nextCharge(sub, '2026-01-01')!.amount).toBe(1130);
+  // The price history keeps the price as typed.
+  expect(sub.prices[0].amount).toBe(1000);
+
+  await updateSubscription(db, id, { ...netflix, tax: { rate: 21_000, included: true } });
+  expect((await getSubscription(db, id))!.tax).toEqual({ rate: 21_000, included: true });
+  await expect(db.runAsync('UPDATE subscriptions SET tax_rate = 100000')).rejects.toThrow();
+});
+
+it('moves only the subscriptions on the old default to a new one', async () => {
+  const db = await createTestDb();
+  const untaxed = await createSubscription(db, netflix, 999);
+  const own = await createSubscription(db, { ...netflix, name: 'Gym', tax: { rate: 5_000, included: false } }, 3000);
+
+  expect(await replaceTax(db, NO_TAX, { rate: 19_000, included: true })).toBe(1);
+  expect((await getSubscription(db, untaxed))!.tax).toEqual({ rate: 19_000, included: true });
+  expect((await getSubscription(db, own))!.tax).toEqual({ rate: 5_000, included: false });
+
+  // An included rate isn't the same as that rate added on top.
+  expect(await replaceTax(db, { rate: 19_000, included: false }, NO_TAX)).toBe(0);
 });
 
 it('saves how late a charge can land', async () => {

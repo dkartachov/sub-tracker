@@ -9,7 +9,7 @@ import { showDialog, useDialogOpen } from './dialog';
  * Screens a restart shouldn't interrupt: forms have progress to lose and Restore replaces the data.
  * iOS can't present a dialog over the `presentation: 'modal'` ones anyway.
  */
-const HOLD_PATHS = [
+export const HOLD_PATHS = [
   '/subscription/edit',
   '/subscription/price-change',
   '/subscription/cancel',

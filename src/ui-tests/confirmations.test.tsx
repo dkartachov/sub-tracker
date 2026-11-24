@@ -11,8 +11,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import SettingsScreen from '@/app/(tabs)/settings';
 import RestoreScreen from '@/app/restore';
+import TaxRegionScreen from '@/app/tax-region';
 import SubscriptionScreen from '@/app/subscription/[id]';
 import { DialogHost } from '@/components/dialog';
+import { TaxRateCheck } from '@/components/tax-rate-check';
 import {
   addPriceChange,
   createSubscription,
@@ -24,6 +26,8 @@ import {
 import { createBackup, serializeBackup } from '@/lib/backup';
 import { getCurrency, setCurrency } from '@/lib/currency';
 import { createTestDb } from '@/test-utils/sqlite';
+import { NO_TAX } from '@/lib/tax';
+import { appliedTaxSetting, taxRegionSetting } from '@/lib/tax-setting';
 
 let mockDb: SQLiteDatabase;
 let mockParams: Record<string, string> = {};
@@ -36,6 +40,7 @@ jest.mock('expo-sqlite', () => ({
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), push: jest.fn() },
   useLocalSearchParams: () => mockParams,
+  usePathname: () => '/',
   useNavigation: () => {
     throw new Error('No navigator in tests');
   },
@@ -62,6 +67,7 @@ const netflix: SubscriptionInput = {
   isTrial: false,
   reminderDaysBefore: 3,
   chargeWindowDays: 0,
+  tax: NO_TAX,
   notes: '',
 };
 
@@ -257,4 +263,81 @@ it("says so when an export can't be shared", async () => {
   expect(await screen.findByText("Couldn't export")).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'OK' }));
   expectNoDialog("Couldn't export");
+});
+
+describe('after an app update changes the region tax rate', () => {
+  const oldRate = { rate: 22_000, included: true };
+
+  beforeEach(() => {
+    taxRegionSetting.set('EE');
+    appliedTaxSetting.set(oldRate);
+  });
+  afterEach(() => {
+    taxRegionSetting.set('');
+    appliedTaxSetting.set(null);
+  });
+
+  it('moves the subscriptions on the old rate over, leaving ones with their own', async () => {
+    await createSubscription(mockDb, { ...netflix, tax: oldRate }, 999);
+    await createSubscription(mockDb, { ...netflix, name: 'Spotify', tax: oldRate }, 1099);
+    await createSubscription(mockDb, { ...netflix, name: 'Gym', tax: { rate: 9_000, included: true } }, 3000);
+
+    await renderWithDialogs(<TaxRateCheck />);
+    expect(await screen.findByText('Tax rate changed')).toBeTruthy();
+    expect(screen.getByText(/Estonia's VAT is now 24%/)).toBeTruthy();
+    await fireEvent.press(screen.getByText('Update 2'));
+
+    await waitFor(async () =>
+      expect((await getSubscriptions(mockDb)).map((sub) => [sub.name, sub.tax.rate])).toEqual([
+        ['Gym', 9_000],
+        ['Netflix', 24_000],
+        ['Spotify', 24_000],
+      ])
+    );
+    expect(appliedTaxSetting.get()).toEqual({ rate: 24_000, included: true });
+  });
+
+  it('asks only once, keeping the old rate when told to', async () => {
+    await createSubscription(mockDb, { ...netflix, tax: oldRate }, 999);
+
+    const { unmount } = await renderWithDialogs(<TaxRateCheck />);
+    await fireEvent.press(await screen.findByText('Keep them'));
+    expect((await getSubscriptions(mockDb))[0].tax).toEqual(oldRate);
+    await unmount();
+
+    await renderWithDialogs(<TaxRateCheck />);
+    expect(screen.queryByText('Tax rate changed')).toBeNull();
+  });
+});
+
+describe('picking a tax region', () => {
+  afterEach(() => {
+    taxRegionSetting.set('');
+    appliedTaxSetting.set(null);
+  });
+
+  it('sets it and offers to move subscriptions without tax over', async () => {
+    await createSubscription(mockDb, netflix, 999);
+    await renderWithDialogs(<TaxRegionScreen />);
+
+    await fireEvent.press(screen.getByText('Canada: Québec'));
+    expect(taxRegionSetting.get()).toBe('CA-QC');
+    expect(router.back).toHaveBeenCalled();
+    await fireEvent.press(await screen.findByText('Update it'));
+
+    await waitFor(async () =>
+      expect((await getSubscriptions(mockDb))[0].tax).toEqual({ rate: 14_975, included: false })
+    );
+  });
+});
+
+it('marks the selected tax region, for screen readers too', async () => {
+  taxRegionSetting.set('CA-QC');
+  await renderWithDialogs(<TaxRegionScreen />);
+
+  expect(screen.getByText('Selected: Canada: Québec')).toBeTruthy();
+  expect(screen.getAllByRole('radio', { selected: true })).toHaveLength(1);
+  expect(screen.getByRole('radio', { name: /Canada: Québec/ })).toBeSelected();
+  expect(screen.getByRole('radio', { name: /^No tax/ })).not.toBeSelected();
+  taxRegionSetting.set('');
 });

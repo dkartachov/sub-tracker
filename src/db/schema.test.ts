@@ -53,3 +53,14 @@ it('charges existing subscriptions on the day when adding charge windows', async
   expect(await db.getFirstAsync('SELECT charge_window_days FROM subscriptions')).toEqual({ charge_window_days: 0 });
   await expect(db.runAsync('UPDATE subscriptions SET charge_window_days = -1')).rejects.toThrow();
 });
+
+it('gives existing subscriptions no tax when adding tax', async () => {
+  const { createTestDb } = jest.requireActual<typeof import('@/test-utils/sqlite')>('@/test-utils/sqlite');
+  const db = await createTestDb();
+  await db.runAsync("INSERT INTO subscriptions (name, category, notes, created_at) VALUES ('Netflix', 'streaming', '', '')");
+  expect(await db.getFirstAsync('SELECT tax_rate, price_includes_tax FROM subscriptions')).toEqual({
+    tax_rate: 0,
+    price_includes_tax: 1,
+  });
+  await expect(db.runAsync('UPDATE subscriptions SET tax_rate = -1')).rejects.toThrow();
+});

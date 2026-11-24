@@ -25,8 +25,8 @@ export const PRIVACY_POLICY: PolicySection[] = [
   {
     heading: 'What Subtracker stores',
     bullets: [
-      'Your subscriptions: the names, categories, prices and price changes, billing cycles, first payment, cancellation and resume dates, free trials, reminder choices and notes you enter.',
-      'App settings: your currency, theme, reminder time and list sort order.',
+      'Your subscriptions: the names, categories, prices and price changes, billing cycles, first payment, cancellation and resume dates, free trials, tax rates, reminder choices and notes you enter.',
+      'App settings: your currency, theme, reminder time, list sort order, and the tax region and rate you pick. Subtracker never works out where you are: the tax region is only what you choose in Settings.',
       'Subtracker has no accounts, so it never asks for your name, email address or payment details.',
     ],
   },

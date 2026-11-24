@@ -2,6 +2,7 @@ import type { Subscription } from '@/db/subscriptions';
 import { simpleSubscription } from '@/test-utils/subscription';
 
 import { BackupError, createBackup, parseBackup, serializeBackup, subscriptionsCsv } from './backup';
+import { NO_TAX } from '@/lib/tax';
 
 const netflix: Subscription = simpleSubscription({
   id: 4,
@@ -13,6 +14,7 @@ const netflix: Subscription = simpleSubscription({
   cancelledOn: null,
   reminderDaysBefore: 3,
   chargeWindowDays: 0,
+  tax: NO_TAX,
   notes: 'Family plan, "shared"',
   prices: [
     { amount: 1299, effectiveDate: '2026-01-10' },
@@ -37,7 +39,7 @@ it('accepts a backup with spaces or lines around it', () => {
 it('refuses text that is not a backup, saying why', () => {
   expect(() => parseBackup('hello')).toThrow(BackupError);
   expect(() => parseBackup('{"app":"other"}')).toThrow("isn't a Subtracker backup");
-  expect(() => parseBackup(text({ version: 4 }))).toThrow('newer version');
+  expect(() => parseBackup(text({ version: 5 }))).toThrow('newer version');
   expect(() => parseBackup(text({ currency: 'XYZ' }))).toThrow('unknown currency');
 });
 
@@ -87,8 +89,29 @@ it('reads a version 1 backup, with one billing cycle per subscription', () => {
 
 it('writes a CSV row per subscription, quoting what needs it', () => {
   const [header, row] = subscriptionsCsv([netflix], 'EUR', '2026-03-05').split('\r\n');
-  expect(header).toBe('Name,Category,Status,Price (EUR),Billed,Per month (EUR),Next charge,First payment,Cancelled from,Notes');
-  expect(row).toBe('Netflix,Streaming,active,12.99,Monthly,12.99,2026-03-10,2026-01-10,,"Family plan, ""shared"""');
+  expect(header).toBe(
+    'Name,Category,Status,Price (EUR),Tax (%),Tax included,Billed,Per month (EUR),Next charge,First payment,Cancelled from,Notes'
+  );
+  expect(row).toBe('Netflix,Streaming,active,12.99,0,,Monthly,12.99,2026-03-10,2026-01-10,,"Family plan, ""shared"""');
+});
+
+it('puts what is charged, tax included, in the CSV', () => {
+  const taxed = { ...netflix, tax: { rate: 13_000, included: false } };
+  const [, row] = subscriptionsCsv([taxed], 'CAD', '2026-03-05').split('\r\n');
+  expect(row).toContain('Netflix,Streaming,active,14.68,13,no,Monthly,14.68,');
+});
+
+it('keeps the tax, and reads older backups as without it', () => {
+  const taxed = { ...netflix, tax: { rate: 14_975, included: false } };
+  expect(parseBackup(serializeBackup(createBackup([taxed], 'CAD'))).subscriptions[0].tax).toEqual(taxed.tax);
+
+  const { tax: _tax, ...v3Sub } = createBackup([taxed], 'CAD').subscriptions[0];
+  expect(parseBackup(text({ version: 3, subscriptions: [v3Sub] })).subscriptions[0].tax).toEqual(NO_TAX);
+
+  expect(() => parseBackup(text({ subscriptions: [v3Sub] }))).toThrow('unreadable tax rate');
+  expect(() => parseBackup(text({ subscriptions: [{ ...v3Sub, tax: { rate: 21.5, included: true } }] }))).toThrow(
+    'unreadable tax rate'
+  );
 });
 
 it('keeps how late charges can land, and reads older backups as on the day', () => {

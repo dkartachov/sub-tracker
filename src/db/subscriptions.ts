@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { toCategory, type Category } from '@/constants/categories';
 import {
+  chargedOn,
   CYCLE_UNITS,
   endsAfter,
   firstPaymentDate,
@@ -16,6 +17,7 @@ import {
   type PriceChange,
 } from '@/lib/billing';
 import { todayKey, type DateKey } from '@/lib/dates';
+import type { Tax } from '@/lib/tax';
 
 import { useDbQuery } from './use-db-query';
 
@@ -27,6 +29,8 @@ export type Subscription = Billing & {
   reminderDaysBefore: number | null;
   /** How many days after its billing day a charge can land, for ones billed around a day. 0 for an exact day. */
   chargeWindowDays: number;
+  /** Its own rate, filled in from the Settings tax region when it was added. */
+  tax: Tax;
   notes: string;
 };
 
@@ -78,8 +82,13 @@ export function expectedCharge(sub: Subscription, today: DateKey = todayKey()) {
   return nextExpectedCharge(sub, today, sub.chargeWindowDays);
 }
 
-/** The price charged today, or the first price for a subscription that hasn't started. */
+/** What's charged today, tax included, or the first charge for a subscription that hasn't started. */
 export function currentPrice(sub: Subscription, today: DateKey = todayKey()) {
+  return chargedOn(sub, today);
+}
+
+/** The price as typed for today (before tax when it's added on top), for editing. */
+export function typedPrice(sub: Subscription, today: DateKey = todayKey()) {
   return priceOn(sub.prices, today);
 }
 
@@ -90,6 +99,8 @@ type SubscriptionRow = {
   is_trial: number;
   reminder_days_before: number | null;
   charge_window_days: number;
+  tax_rate: number;
+  price_includes_tax: number;
   notes: string;
 };
 
@@ -119,6 +130,7 @@ function toSubscription(row: SubscriptionRow, periods: BillingPeriod[], prices: 
     isTrial: row.is_trial === 1,
     reminderDaysBefore: row.reminder_days_before,
     chargeWindowDays: row.charge_window_days,
+    tax: { rate: row.tax_rate, included: row.price_includes_tax === 1 },
     notes: row.notes,
     periods,
     prices,
@@ -135,7 +147,8 @@ function groupBy<Row extends { subscription_id: number }, T>(rows: Row[], map: (
   return groups;
 }
 
-const SELECT_SUBSCRIPTIONS = 'SELECT id, name, category, is_trial, reminder_days_before, charge_window_days, notes FROM subscriptions';
+const SELECT_SUBSCRIPTIONS =
+  'SELECT id, name, category, is_trial, reminder_days_before, charge_window_days, tax_rate, price_includes_tax, notes FROM subscriptions';
 const SELECT_PERIODS = 'SELECT subscription_id, start_date, cycle_count, cycle_unit, end_date FROM billing_periods';
 const SELECT_PRICES = 'SELECT subscription_id, amount, effective_date FROM price_changes';
 
@@ -162,13 +175,15 @@ export async function createSubscription(db: SQLiteDatabase, input: Subscription
   let id = 0;
   await db.withTransactionAsync(async () => {
     const result = await db.runAsync(
-      `INSERT INTO subscriptions (name, category, is_trial, reminder_days_before, charge_window_days, notes, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO subscriptions (name, category, is_trial, reminder_days_before, charge_window_days, tax_rate, price_includes_tax, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.name,
       input.category,
       input.isTrial ? 1 : 0,
       input.reminderDaysBefore,
       input.chargeWindowDays,
+      input.tax.rate,
+      input.tax.included ? 1 : 0,
       input.notes,
       new Date().toISOString()
     );
@@ -197,12 +212,15 @@ const LAST_PERIOD = '(SELECT id FROM billing_periods WHERE subscription_id = ? O
 export async function updateSubscription(db: SQLiteDatabase, id: number, input: SubscriptionInput) {
   await db.withTransactionAsync(async () => {
     await db.runAsync(
-      'UPDATE subscriptions SET name = ?, category = ?, is_trial = ?, reminder_days_before = ?, charge_window_days = ?, notes = ? WHERE id = ?',
+      `UPDATE subscriptions SET name = ?, category = ?, is_trial = ?, reminder_days_before = ?, charge_window_days = ?,
+        tax_rate = ?, price_includes_tax = ?, notes = ? WHERE id = ?`,
       input.name,
       input.category,
       input.isTrial ? 1 : 0,
       input.reminderDaysBefore,
       input.chargeWindowDays,
+      input.tax.rate,
+      input.tax.included ? 1 : 0,
       input.notes,
       id
     );
@@ -319,6 +337,22 @@ export async function deletePeriod(db: SQLiteDatabase, id: number, start: DateKe
     }
     await db.runAsync('DELETE FROM billing_periods WHERE id = ?', removed.id);
   });
+}
+
+/**
+ * Moves every subscription on tax `from` to `to`, for a change of the Settings default. Ones given
+ * a rate of their own stay as they are. With no rate, being "included" means nothing, so a `from`
+ * of rate 0 matches every subscription without tax. Returns how many changed.
+ */
+export async function replaceTax(db: SQLiteDatabase, from: Tax, to: Tax) {
+  const result = await db.runAsync(
+    'UPDATE subscriptions SET tax_rate = ?, price_includes_tax = ? WHERE tax_rate = ? AND (tax_rate = 0 OR price_includes_tax = ?)',
+    to.rate,
+    to.included ? 1 : 0,
+    from.rate,
+    from.included ? 1 : 0
+  );
+  return result.changes;
 }
 
 export async function deleteSubscription(db: SQLiteDatabase, id: number) {

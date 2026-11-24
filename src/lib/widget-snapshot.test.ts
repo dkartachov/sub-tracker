@@ -2,6 +2,7 @@ import type { Subscription } from '@/db/subscriptions';
 import { simpleSubscription, type SimpleSubscription } from '@/test-utils/subscription';
 
 import { widgetSnapshot } from './widget-snapshot';
+import { NO_TAX } from '@/lib/tax';
 
 function sub(overrides: Partial<SimpleSubscription>): Subscription {
   return simpleSubscription({
@@ -14,6 +15,7 @@ function sub(overrides: Partial<SimpleSubscription>): Subscription {
     cancelledOn: null,
     reminderDaysBefore: null,
     chargeWindowDays: 0,
+    tax: NO_TAX,
     notes: '',
     prices: [{ amount: 1000, effectiveDate: '2026-01-10' }],
     ...overrides,

@@ -26,6 +26,7 @@ import {
   setCancelled,
   statusOf,
   trialWontConvert,
+  typedPrice,
   useSubscription,
   type Subscription,
 } from '@/db/subscriptions';
@@ -46,6 +47,7 @@ import {
   type BillingPeriod,
 } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
+import { formatTaxRate, taxOn } from '@/lib/tax';
 import {
   addDays,
   daysBetween,
@@ -169,6 +171,12 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
         {stopped && <InfoRow label="Cancelled" value={formatDateKey(stopped)} />}
         <InfoRow label="Billed" value={formatCycleAdverb(cycle)} />
         {chargeWindow > 0 && <InfoRow label="Charge day" value={`Up to ${formatChargeWindow(chargeWindow)} late`} />}
+        {sub.tax.rate > 0 && (
+          <InfoRow
+            label={sub.tax.included ? 'Tax included' : 'Tax added'}
+            value={`${money(taxOn(typedPrice(sub, next?.date ?? today), sub.tax))} (${formatTaxRate(sub.tax.rate)})`}
+          />
+        )}
         {cycle.unit !== 'month' || cycle.count !== 1 ? (
           <InfoRow label="Per month" value={`≈ ${money(monthlyEquivalent(price, cycle))}`} />
         ) : (
@@ -220,9 +228,14 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
             {change.previous !== undefined && <PriceDelta from={change.previous} to={change.amount} />}
           </PressableScale>
         ))}
-        {history.length > 1 && (
+        {(history.length > 1 || (sub.tax.rate > 0 && !sub.tax.included)) && (
           <ThemedText type="small" themeColor="textSecondary">
-            Long press a change to remove it.
+            {[
+              sub.tax.rate > 0 && !sub.tax.included && `Prices before the ${formatTaxRate(sub.tax.rate)} tax added on top.`,
+              history.length > 1 && 'Long press a change to remove it.',
+            ]
+              .filter(Boolean)
+              .join(' ')}
           </ThemedText>
         )}
       </Section>

@@ -11,7 +11,7 @@ import { PageHeader } from '@/components/page-header';
 import { ThemedText } from '@/components/themed-text';
 import { setCancelled, statusOf, useSubscription, type Subscription } from '@/db/subscriptions';
 import { useToday } from '@/hooks/use-today';
-import { chargesOn, finalEnd, firstPaymentDate, lastPeriod, paidPeriodEnd, priceOn, withoutFinalEnd } from '@/lib/billing';
+import { chargedOn, chargesOn, finalEnd, firstPaymentDate, lastPeriod, paidPeriodEnd, withoutFinalEnd } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
 import { addDays, formatDateKey, formatShortDate, fromDateKey, type DateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
@@ -76,12 +76,12 @@ function CancelForm({ sub }: { sub: Subscription }) {
     ? `Pick a day after ${formatDateKey(lastPeriod(sub).start)}, when it last started charging.`
     : isTrial
       ? chosen <= firstPayment
-        ? `The trial won't turn into a paid plan, so the ${formatMoney(priceOn(sub.prices, firstPayment), currency)} first charge won't be counted.`
+        ? `The trial won't turn into a paid plan, so the ${formatMoney(chargedOn(sub, firstPayment), currency)} first charge won't be counted.`
         : `The trial converts on ${formatShortDate(firstPayment, today)} first, so charges are counted until then.`
       : future
         ? `It keeps running until ${formatDateKey(chosen)}, with no charges counted from that day on.`
         : chosen === today && chargedToday
-          ? `Today's ${formatMoney(priceOn(sub.prices, today), currency)} charge won't be counted either. If it's already gone through, pick “When paid period ends” to keep it.`
+          ? `Today's ${formatMoney(chargedOn(sub, today), currency)} charge won't be counted either. If it's already gone through, pick “When paid period ends” to keep it.`
           : `No charges are counted from ${chosen === today ? 'today' : formatDateKey(chosen)} on. Charges before it stay in what you've spent.`;
 
   return (

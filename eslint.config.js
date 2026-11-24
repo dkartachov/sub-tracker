@@ -21,6 +21,15 @@ module.exports = defineConfig([
           ],
         },
       ],
+      // React Compiler doesn't see `setting.use()` as a hook, caches it and skips it on later
+      // renders, so React crashes with "Cannot read property 'next' of undefined".
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.type='MemberExpression'][callee.property.name='use']:not([callee.object.name='React'])",
+          message: 'Export it as a `useSomething` hook (`export const useX = setting.use`) and call that: React Compiler skips `obj.use()` on re-renders.',
+        },
+      ],
     },
   },
 ]);

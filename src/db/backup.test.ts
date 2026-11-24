@@ -2,6 +2,7 @@ import { createTestDb } from '@/test-utils/sqlite';
 
 import { replaceAllSubscriptions } from './backup';
 import { createSubscription, getSubscriptions, type SubscriptionInput } from './subscriptions';
+import { NO_TAX } from '@/lib/tax';
 
 const gym: SubscriptionInput = {
   name: 'Gym',
@@ -11,6 +12,7 @@ const gym: SubscriptionInput = {
   isTrial: false,
   reminderDaysBefore: null,
   chargeWindowDays: 0,
+  tax: NO_TAX,
   notes: '',
 };
 

@@ -9,13 +9,13 @@ import { CATEGORIES, CATEGORY_INFO, type Category } from '@/constants/categories
 import { nextCharge, statusOf, type Subscription } from '@/db/subscriptions';
 
 import {
+  chargedOn,
   CYCLE_UNITS,
   cycleOn,
   finalEnd,
   firstPaymentDate,
   formatCycleAdverb,
   monthlyEquivalent,
-  priceOn,
   type BillingPeriod,
   type Cycle,
   type CycleUnit,
@@ -23,13 +23,15 @@ import {
 } from './billing';
 import { CURRENCIES, type Currency } from './currency';
 import { fromDateKey, toDateKey, type DateKey } from './dates';
+import { NO_TAX, TAX_RATE_SCALE, type Tax } from './tax';
 
 /**
  * Changes whenever the format does, so an older app can refuse a backup it can't read. Version 1
  * had one billing cycle per subscription (`firstPaymentDate`, `cycle`, `cancelledOn`) where
- * version 2 has `periods`. Version 3 adds `chargeWindowDays`, 0 for older ones. All three restore.
+ * version 2 has `periods`. Version 3 adds `chargeWindowDays`, 0 for older ones. Version 4 adds
+ * `tax`, none for older ones. All four restore.
  */
-export const BACKUP_VERSION = 3;
+export const BACKUP_VERSION = 4;
 
 const BACKUP_APP = 'subtracker';
 
@@ -109,10 +111,24 @@ function parsePeriods(periods: unknown, label: string): BillingPeriod[] {
   return parsed;
 }
 
+function parseTax(tax: unknown, label: string): Tax {
+  if (
+    !isObject(tax) ||
+    typeof tax.rate !== 'number' ||
+    !Number.isInteger(tax.rate) ||
+    tax.rate < 0 ||
+    tax.rate >= TAX_RATE_SCALE ||
+    typeof tax.included !== 'boolean'
+  ) {
+    fail(`${label} has an unreadable tax rate.`);
+  }
+  return { rate: tax.rate, included: tax.included };
+}
+
 function parseSubscription(value: unknown, index: number, version: number): BackupSubscription {
   const where = `Subscription ${index + 1}`;
   if (!isObject(value)) fail(`${where} is unreadable.`);
-  const { name, category, isTrial, reminderDaysBefore, chargeWindowDays, notes, prices } = value;
+  const { name, category, isTrial, reminderDaysBefore, chargeWindowDays, tax, notes, prices } = value;
 
   if (typeof name !== 'string' || name.trim() === '') fail(`${where} has no name.`);
   const label = `“${name}”`;
@@ -134,6 +150,7 @@ function parseSubscription(value: unknown, index: number, version: number): Back
   if (version >= 3 && (typeof chargeWindowDays !== 'number' || !Number.isInteger(chargeWindowDays) || chargeWindowDays < 0)) {
     fail(`${label} has an unreadable charge day.`);
   }
+  const parsedTax: Tax = version >= 4 ? parseTax(tax, label) : NO_TAX;
   if (typeof notes !== 'string') fail(`${label} has unreadable notes.`);
   if (!Array.isArray(prices) || prices.length === 0) fail(`${label} has no price.`);
 
@@ -157,6 +174,7 @@ function parseSubscription(value: unknown, index: number, version: number): Back
     periods,
     reminderDaysBefore: reminderDaysBefore as number | null,
     chargeWindowDays: version >= 3 ? (chargeWindowDays as number) : 0,
+    tax: parsedTax,
     notes,
     prices: parsedPrices,
   };
@@ -172,7 +190,7 @@ export function parseBackup(text: string): Backup {
   }
   if (!isObject(data) || data.app !== BACKUP_APP) fail("This isn't a Subtracker backup.");
   const { version } = data;
-  if (version !== 1 && version !== 2 && version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
+  if (version !== 1 && version !== 2 && version !== 3 && version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
   if (!CURRENCIES.includes(data.currency as Currency)) fail('This backup has an unknown currency.');
   if (!Array.isArray(data.subscriptions)) fail('This backup has no subscriptions list.');
 
@@ -203,6 +221,8 @@ export function subscriptionsCsv(subs: Subscription[], currency: Currency, today
     'Category',
     'Status',
     `Price (${currency})`,
+    'Tax (%)',
+    'Tax included',
     'Billed',
     `Per month (${currency})`,
     'Next charge',
@@ -212,13 +232,16 @@ export function subscriptionsCsv(subs: Subscription[], currency: Currency, today
   ];
   const rows = subs.map((sub) => {
     const next = nextCharge(sub, today);
-    const price = next?.amount ?? priceOn(sub.prices, today);
+    // What's charged, tax included, so it adds up with the totals in the app.
+    const price = next?.amount ?? chargedOn(sub, today);
     const cycle = next?.cycle ?? cycleOn(sub, today);
     return [
       sub.name,
       CATEGORY_INFO[sub.category].label,
       statusOf(sub, today),
       csvAmount(price),
+      sub.tax.rate / 1000,
+      sub.tax.rate === 0 ? '' : sub.tax.included ? 'yes' : 'no',
       formatCycleAdverb(cycle),
       csvAmount(monthlyEquivalent(price, cycle)),
       next?.date ?? '',

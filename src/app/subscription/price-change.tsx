@@ -8,11 +8,12 @@ import { Field, TextField } from '@/components/field';
 import { FormScreen } from '@/components/form-screen';
 import { PageHeader } from '@/components/page-header';
 import { ThemedText } from '@/components/themed-text';
-import { addPriceChange, currentPrice, nextCharge, useSubscription, type Subscription } from '@/db/subscriptions';
+import { addPriceChange, nextCharge, typedPrice, useSubscription, type Subscription } from '@/db/subscriptions';
 import { useToday } from '@/hooks/use-today';
 import { currencyDecimals, formatMoney, moneyInputText, parseMoney, useCurrency } from '@/lib/currency';
 import { addDays, fromDateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
+import { priceFieldLabel } from '@/lib/tax';
 
 /** Logs a new price for the subscription in `id`, from a chosen day on. */
 export default function PriceChangeScreen() {
@@ -25,7 +26,8 @@ function PriceChangeForm({ sub }: { sub: Subscription }) {
   const db = useSQLiteContext();
   const currency = useCurrency();
   const today = useToday();
-  const price = currentPrice(sub, today);
+  // As typed, so before tax when that's added on top, like the new one.
+  const price = typedPrice(sub, today);
 
   const [priceText, setPriceText] = useState(moneyInputText(price, currency));
   // Price changes usually land on the next bill.
@@ -53,7 +55,7 @@ function PriceChangeForm({ sub }: { sub: Subscription }) {
     <FormScreen>
       <PageHeader title="Change price" subtitle={`${sub.name}, now ${formatMoney(price, currency)}`} />
 
-      <Field label={`New price (${currency})`}>
+      <Field label={priceFieldLabel(sub.tax, currency, 'New price')}>
         <TextField value={priceText} onChangeText={setPriceText} keyboardType={currencyDecimals(currency) === 0 ? 'number-pad' : 'decimal-pad'} selectTextOnFocus autoFocus />
       </Field>
 

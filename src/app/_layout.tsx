@@ -9,6 +9,7 @@ import { DevVariantLabel } from '@/components/dev-variant-label';
 import { DialogHost } from '@/components/dialog';
 import { ReminderScheduler } from '@/components/reminder-scheduler';
 import { StackHeader } from '@/components/stack-header';
+import { TaxRateCheck } from '@/components/tax-rate-check';
 import { UpdatePrompt } from '@/components/update-prompt';
 import { WidgetSync } from '@/components/widget-sync';
 import { Colors, DISPLAY_FONT_FACES } from '@/constants/theme';
@@ -67,6 +68,7 @@ function RootNavigator() {
       <ReminderScheduler />
       <WidgetSync />
       <UpdatePrompt />
+      <TaxRateCheck />
       <ThemeProvider value={navigationTheme}>
         <StatusBar style="auto" />
         <Stack screenOptions={{ header: (props) => <StackHeader {...props} /> }}>
@@ -79,6 +81,8 @@ function RootNavigator() {
           {/* Not a modal, because iOS can't show its confirmation dialog over one. */}
           <Stack.Screen name="restore" />
           <Stack.Screen name="privacy-policy" />
+          {/* Not a modal either: picking a region can ask whether to update existing subscriptions. */}
+          <Stack.Screen name="tax-region" />
         </Stack>
         <DialogHost />
         <DevVariantLabel />

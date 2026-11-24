@@ -16,6 +16,8 @@ import { finalEnd } from '@/lib/billing';
 import { setCurrency } from '@/lib/currency';
 import { addDays, todayKey } from '@/lib/dates';
 import { createTestDb } from '@/test-utils/sqlite';
+import { NO_TAX } from '@/lib/tax';
+import { taxRegionSetting } from '@/lib/tax-setting';
 
 let mockDb: SQLiteDatabase;
 let mockParams: Record<string, string> = {};
@@ -51,6 +53,7 @@ const netflix: SubscriptionInput = {
   isTrial: false,
   reminderDaysBefore: 3,
   chargeWindowDays: 0,
+  tax: NO_TAX,
   notes: '',
 };
 
@@ -65,6 +68,7 @@ beforeEach(async () => {
   mockParams = {};
   router.back.mockClear();
   setCurrency('EUR');
+  taxRegionSetting.set('');
 });
 
 it('adds a subscription from a suggestion, with a typed price', async () => {
@@ -217,6 +221,28 @@ it('changes plan to yearly, and not to the plan it already has', async () => {
   expect(sub.periods[1]).toMatchObject({ cycle: { count: 1, unit: 'year' }, end: null });
   expect(sub.periods[0].end).toBe(sub.periods[1].start);
   expect(sub.prices.at(-1)!.amount).toBe(9900);
+});
+
+it('fills in the tax from the Settings region, which the form can change', async () => {
+  setCurrency('CAD');
+  taxRegionSetting.set('CA-ON');
+  await renderScreen(<EditSubscriptionScreen />);
+  expect(screen.getByDisplayValue('13')).toBeTruthy();
+
+  await fireEvent.changeText(screen.getByPlaceholderText('Netflix, climbing gym…'), 'Crave');
+  await fireEvent.changeText(screen.getByPlaceholderText('12.99'), '10');
+  expect(screen.getByText('Price before tax (CAD)')).toBeTruthy();
+  expect(screen.getByText(/\+ .*1\.30 tax: .*11\.30 charged/)).toBeTruthy();
+
+  await fireEvent.changeText(screen.getByLabelText('Tax rate in percent'), '100');
+  expect(screen.getByText(/rate under 100/)).toBeTruthy();
+  await fireEvent.changeText(screen.getByLabelText('Tax rate in percent'), '14.975');
+
+  await fireEvent.press(screen.getByText('Add subscription'));
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  const [sub] = await getSubscriptions(mockDb);
+  expect(sub.tax).toEqual({ rate: 14_975, included: false });
+  expect(sub.prices[0].amount).toBe(1000);
 });
 
 it('saves how late a charge can land, offering only what fits the cycle', async () => {

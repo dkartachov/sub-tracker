@@ -15,6 +15,7 @@ import { formatCycle, lastPeriod, newPeriodProblem, priceOn, type CycleUnit } fr
 import { currencyDecimals, formatMoney, moneyInputText, parseMoney, useCurrency } from '@/lib/currency';
 import { addDays, formatDateKey, fromDateKey, type DateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
+import { priceFieldLabel, withTax } from '@/lib/tax';
 
 type Kind = 'resume' | 'change';
 
@@ -71,7 +72,7 @@ function PlanForm({ sub, kind }: { sub: Subscription; kind: Kind }) {
 
   const summary =
     cycle && amount !== null
-      ? `${formatMoney(amount, currency)} on ${formatDateKey(from)}, then every ${formatCycle(cycle)}.`
+      ? `${formatMoney(withTax(amount, sub.tax), currency)} on ${formatDateKey(from)}, then every ${formatCycle(cycle)}.`
       : '';
 
   return (
@@ -112,7 +113,7 @@ function PlanForm({ sub, kind }: { sub: Subscription; kind: Kind }) {
         )}
       </Field>
 
-      <Field label={`Price (${currency})`}>
+      <Field label={priceFieldLabel(sub.tax, currency)}>
         <TextField
           value={priceText}
           onChangeText={setPriceText}

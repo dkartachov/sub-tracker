@@ -18,6 +18,7 @@ import { suggestTemplates, type SubscriptionTemplate } from '@/constants/templat
 import { Spacing } from '@/constants/theme';
 import {
   createSubscription,
+  typedPrice,
   updateSubscription,
   useSubscription,
   type Subscription,
@@ -32,10 +33,12 @@ import {
   type Cycle,
   type CycleUnit,
 } from '@/lib/billing';
-import { currencyDecimals, moneyPlaceholder, parseMoney, useCurrency } from '@/lib/currency';
+import { currencyDecimals, formatMoney, moneyPlaceholder, parseMoney, useCurrency, type Currency } from '@/lib/currency';
 import { formatDateKey, todayKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
 import { requestNotificationPermission } from '@/lib/renewal-reminders';
+import { parseTaxRate, priceFieldLabel, taxOn, taxRateInputText, withTax, type Tax } from '@/lib/tax';
+import { useDefaultTax } from '@/lib/tax-setting';
 
 const REMINDER_OPTIONS = [-1, 0, 1, 3, 7] as const;
 type ReminderOption = (typeof REMINDER_OPTIONS)[number];
@@ -54,6 +57,18 @@ function chargeWindowOptions(cycle: Cycle | null, saved: number) {
 
 function chargeWindowLabel(days: number) {
   return days === 0 ? 'On the day' : `Up to ${formatChargeWindow(days)} late`;
+}
+
+/** What the tax comes to on `price`, or where the rate came from when there's no price to show it on. */
+function taxHint(price: number | null, tax: Tax, currency: Currency, regionName: string | null) {
+  if (tax.rate === 0) {
+    return regionName ? 'None for this one.' : 'Pick your tax region in Settings to fill this in for new subscriptions.';
+  }
+  if (price === null) return tax.included ? 'The price includes it.' : "It's added on top of the price.";
+  const money = (minor: number) => formatMoney(minor, currency);
+  return tax.included
+    ? `${money(price)} includes ${money(taxOn(price, tax))} tax.`
+    : `${money(price)} + ${money(taxOn(price, tax))} tax: ${money(withTax(price, tax))} charged.`;
 }
 
 function reminderLabel(days: ReminderOption) {
@@ -92,14 +107,24 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const [chargeWindow, setChargeWindow] = useState(existing?.chargeWindowDays ?? 0);
   const [notes, setNotes] = useState(existing?.notes ?? '');
   const [saving, setSaving] = useState(false);
+  // New ones start from the Settings region; each keeps its own rate after that.
+  const { region, tax: defaultTax } = useDefaultTax();
+  const [initialTax] = useState(existing?.tax ?? defaultTax);
+  const [taxRateText, setTaxRateText] = useState(initialTax.rate === 0 ? '' : taxRateInputText(initialTax.rate));
+  const [taxIncluded, setTaxIncluded] = useState(initialTax.included);
 
   const price = parseMoney(priceText, currency);
+  const taxRate = taxRateText.trim() === '' ? 0 : parseTaxRate(taxRateText);
+  const tax: Tax = { rate: taxRate ?? 0, included: taxIncluded };
+  // Editing, the price is the current one from the price history.
+  const shownPrice = existing ? typedPrice(existing) : price;
   const cycle = parseCycle(cycleCountText, cycleUnit);
   const multiplePeriods = (existing?.periods.length ?? 0) > 1;
   // The first period has to keep at least its first charge before the next one takes over.
   const firstPeriodEnd = multiplePeriods ? existing!.periods[0].end : null;
   const firstPaymentValid = firstPeriodEnd === null || firstPaymentDate < firstPeriodEnd;
-  const valid = name.trim() !== '' && cycle !== null && firstPaymentValid && (existing !== undefined || price !== null);
+  const valid =
+    name.trim() !== '' && cycle !== null && firstPaymentValid && taxRate !== null && (existing !== undefined || price !== null);
   const suggestions = existing ? [] : suggestTemplates(name);
   const windowOptions = chargeWindowOptions(cycle, existing?.chargeWindowDays ?? 0);
   // A daily plan, or a window left too long by a shorter cycle, charges on the day.
@@ -123,6 +148,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
       isTrial,
       reminderDaysBefore: reminder === -1 ? null : reminder,
       chargeWindowDays,
+      tax,
       notes: notes.trim(),
     };
     try {
@@ -165,9 +191,49 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
       </Field>
 
       {!existing && (
-        <Field label={`Price (${currency})`}>
+        <Field label={priceFieldLabel(tax, currency)}>
           <TextField value={priceText} onChangeText={setPriceText} placeholder={moneyPlaceholder(currency)} keyboardType={currencyDecimals(currency) === 0 ? 'number-pad' : 'decimal-pad'} />
         </Field>
+      )}
+
+      <Field label="Tax (%)">
+        <TextField
+          value={taxRateText}
+          onChangeText={setTaxRateText}
+          placeholder="0"
+          keyboardType="decimal-pad"
+          accessibilityLabel="Tax rate in percent"
+        />
+        {taxRate === null ? (
+          <ThemedText type="small" themeColor="danger">
+            Type a rate under 100, like 21 or 8.1.
+          </ThemedText>
+        ) : (
+          <ThemedText type="small" themeColor="textSecondary">
+            {taxHint(shownPrice, tax, currency, region?.name ?? null)}
+          </ThemedText>
+        )}
+      </Field>
+
+      {tax.rate > 0 && (
+        <View style={styles.switchRow}>
+          <View style={styles.switchText}>
+            <ThemedText type="smallBold">Price includes tax</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Usual for VAT and GST. Turn off where tax is added at checkout, like US and Canadian sales tax.
+            </ThemedText>
+          </View>
+          <Switch
+            value={taxIncluded}
+            onValueChange={(value) => {
+              haptic.select();
+              setTaxIncluded(value);
+            }}
+            trackColor={{ true: theme.tint, false: theme.border }}
+            thumbColor={theme.backgroundElement}
+            accessibilityLabel="Price includes tax"
+          />
+        </View>
       )}
 
       <Field label="Billed every">

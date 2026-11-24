@@ -15,7 +15,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getSubscriptions, type Subscription } from '@/db/subscriptions';
 
-import { firstPaymentDate, paymentsBetween, priceOn } from './billing';
+import { chargedOn, firstPaymentDate, paymentsBetween } from './billing';
 import { formatMoney, getCurrency } from './currency';
 import { addDays, fromDateKey, toDateKey, type DateKey } from './dates';
 import { getReminderTime, timeKey, type TimeOfDay } from './reminder-time';
@@ -66,7 +66,7 @@ export function planReminders(
       date.setHours(time.hour, time.minute);
       if (date.getTime() <= now.getTime()) continue;
 
-      const amount = formatMoney(priceOn(sub.prices, paymentDate), currency);
+      const amount = formatMoney(chargedOn(sub, paymentDate), currency);
       const isTrialEnd = sub.isTrial && paymentDate === firstPaymentDate(sub);
       const lateDays = isTrialEnd ? 0 : sub.chargeWindowDays;
       const when = daysBefore === 0 ? 'today' : `on ${formatPaymentDay(paymentDate)}`;

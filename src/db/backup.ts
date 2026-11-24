@@ -15,13 +15,15 @@ export async function replaceAllSubscriptions(db: SQLiteDatabase, subs: BackupSu
     await txn.runAsync('DELETE FROM subscriptions');
     for (const sub of subs) {
       const result = await txn.runAsync(
-        `INSERT INTO subscriptions (name, category, is_trial, reminder_days_before, charge_window_days, notes, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO subscriptions (name, category, is_trial, reminder_days_before, charge_window_days, tax_rate, price_includes_tax, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         sub.name,
         sub.category,
         sub.isTrial ? 1 : 0,
         sub.reminderDaysBefore,
         sub.chargeWindowDays,
+        sub.tax.rate,
+        sub.tax.included ? 1 : 0,
         sub.notes,
         createdAt
       );

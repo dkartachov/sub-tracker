@@ -6,10 +6,11 @@
  * `cycle` after it, until its end (a cancellation) or the next period's start (a plan change),
  * whichever comes first. A cancelled subscription that's resumed gets a new period, so the time in
  * between charges nothing. Each charge costs the price in effect on that day, from the price
- * history, which runs across periods. A free trial is a subscription whose first period starts on
+ * history, which runs across periods, plus tax when that's added on top (see `tax.ts`). A free trial is a subscription whose first period starts on
  * the day the trial converts.
  */
 import { addDays, addMonthsClamped, daysBetween, type DateKey } from './dates';
+import { withTax, type Tax } from './tax';
 
 export const CYCLE_UNITS = ['day', 'week', 'month', 'year'] as const;
 export type CycleUnit = (typeof CYCLE_UNITS)[number];
@@ -38,6 +39,8 @@ export type Billing = {
   periods: BillingPeriod[];
   /** Oldest first, never empty. The first one covers every charge before the next. */
   prices: PriceChange[];
+  /** Tax on every charge. The prices are as typed, so without the tax when it's added on top. None if absent. */
+  tax?: Tax;
 };
 
 type Periods = Pick<Billing, 'periods'>;
@@ -198,14 +201,20 @@ export function priceOn(prices: PriceChange[], date: DateKey): number {
 
 export type Charge = {
   date: DateKey;
+  /** What's paid: the price, plus tax when that's added on top. */
   amount: number;
   /** The cycle this charge pays for. */
   cycle: Cycle;
 };
 
+/** What's paid for a charge on `date`: the price then, plus tax when it's added on top. */
+export function chargedOn(billing: Pick<Billing, 'prices' | 'tax'>, date: DateKey): number {
+  return withTax(priceOn(billing.prices, date), billing.tax);
+}
+
 /** What a charge on `date` costs and pays for. */
 export function chargeOn(billing: Billing, date: DateKey): Charge {
-  return { date, amount: priceOn(billing.prices, date), cycle: cycleOn(billing, date) };
+  return { date, amount: chargedOn(billing, date), cycle: cycleOn(billing, date) };
 }
 
 /** Every charge from `from` to `to`, both included, oldest first, with what each cost. */
