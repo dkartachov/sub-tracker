@@ -74,6 +74,10 @@ Settings other than the currency and theme (reminder time, list sort order) go t
 
 Logic tests sit next to the code they test. Tests that render and drive screens are in `src/ui-tests/`, outside `src/app` so Expo Router doesn't take them for routes. They run against the same in-memory database.
 
+## Privacy policy
+
+The text lives in `src/lib/privacy-policy.ts`, shown in the app under Settings > Privacy policy. `site/build.mjs` (Node 24, `node site/build.mjs`) turns the same text into `site/dist/index.html`, and `.github/workflows/pages.yml` publishes it to GitHub Pages whenever it changes on `main`. That page is the URL for the Play Store listing. Update the policy when the app starts storing or sending something new.
+
 ## Icons
 
 `npm run icons` draws every icon, the splash image and the notification icon into `assets/images` from `scripts/make-icons.mjs`. The script has no dependencies, so edit the drawing there and run it again.

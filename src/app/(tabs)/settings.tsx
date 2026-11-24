@@ -60,6 +60,7 @@ export default function SettingsScreen() {
         <ThemedText type="small" themeColor="textSecondary">
           Everything you enter stays on this phone.
         </ThemedText>
+        <Button title="Privacy policy" variant="secondary" onPress={() => router.push('/privacy-policy')} />
       </Section>
     </Screen>
   );

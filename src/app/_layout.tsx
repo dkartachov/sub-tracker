@@ -78,6 +78,7 @@ function RootNavigator() {
           <Stack.Screen name="subscription/plan" options={{ presentation: 'modal' }} />
           {/* Not a modal, because iOS can't show its confirmation dialog over one. */}
           <Stack.Screen name="restore" />
+          <Stack.Screen name="privacy-policy" />
         </Stack>
         <DialogHost />
         <DevVariantLabel />
