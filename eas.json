@@ -36,6 +36,11 @@
         "track": "alpha"
       }
     },
+    "open": {
+      "android": {
+        "track": "beta"
+      }
+    },
     "production": {
       "android": {
         "track": "production"
