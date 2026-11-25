@@ -11,7 +11,7 @@ import { PageHeader } from '@/components/page-header';
 import { ThemedText } from '@/components/themed-text';
 import { nextCharge, startPeriod, useSubscription, type Subscription } from '@/db/subscriptions';
 import { useToday } from '@/hooks/use-today';
-import { formatCycle, lastPeriod, newPeriodProblem, priceOn, type CycleUnit } from '@/lib/billing';
+import { formatCycle, lastPeriod, newPeriodProblem, paymentDate, priceOn, type CycleUnit } from '@/lib/billing';
 import { currencyDecimals, formatMoney, moneyInputText, parseMoney, useCurrency } from '@/lib/currency';
 import { addDays, formatDateKey, fromDateKey, type DateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
@@ -70,9 +70,13 @@ function PlanForm({ sub, kind }: { sub: Subscription; kind: Kind }) {
     }
   };
 
+  // One that renews early charges its first renewal ahead of a cycle after the switch.
+  const firstRenewal = cycle && sub.renewsEarlyDays > 0 ? paymentDate({ start: from, cycle }, 1, sub.renewsEarlyDays) : null;
   const summary =
     cycle && amount !== null
-      ? `${formatMoney(withTax(amount, sub.tax), currency)} on ${formatDateKey(from)}, then every ${formatCycle(cycle)}.`
+      ? `${formatMoney(withTax(amount, sub.tax), currency)} on ${formatDateKey(from)}, then ${
+          firstRenewal ? `renewing on ${formatDateKey(firstRenewal)} and every ${formatCycle(cycle)} after` : `every ${formatCycle(cycle)}`
+        }.`
       : '';
 
   return (

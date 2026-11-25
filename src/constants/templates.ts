@@ -32,6 +32,12 @@ export const TEMPLATES: SubscriptionTemplate[] = [
   { name: 'Nintendo Switch Online', category: 'gaming', cycle: yearly },
   { name: 'Audible', category: 'news', cycle: monthly },
   { name: 'Duolingo', category: 'software', cycle: yearly },
+  { name: 'GitHub Copilot', category: 'development', cycle: monthly },
+  { name: 'GitHub Pro', category: 'development', cycle: monthly },
+  { name: 'Claude Pro', category: 'development', cycle: monthly },
+  { name: 'Claude Max', category: 'development', cycle: monthly },
+  { name: 'Cursor', category: 'development', cycle: monthly },
+  { name: 'JetBrains All Products Pack', category: 'development', cycle: yearly },
   { name: 'Phone plan', category: 'utilities', cycle: monthly },
   { name: 'Internet', category: 'utilities', cycle: monthly },
 ];

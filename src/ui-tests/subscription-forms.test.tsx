@@ -53,6 +53,7 @@ const netflix: SubscriptionInput = {
   isTrial: false,
   reminderDaysBefore: 3,
   chargeWindowDays: 0,
+  renewsEarlyDays: 0,
   tax: NO_TAX,
   notes: '',
 };
@@ -261,4 +262,20 @@ it('saves how late a charge can land, offering only what fits the cycle', async 
   await fireEvent.press(screen.getByText('Add subscription'));
   await waitFor(() => expect(router.back).toHaveBeenCalled());
   expect((await getSubscriptions(mockDb))[0].chargeWindowDays).toBe(7);
+});
+
+it('saves how early a yearly one renews, offered from longer cycles', async () => {
+  await renderScreen(<EditSubscriptionScreen />);
+
+  await fireEvent.changeText(screen.getByPlaceholderText('Netflix, climbing gym…'), 'example.com');
+  await fireEvent.changeText(screen.getByPlaceholderText('12.99'), '10.34');
+  expect(screen.queryByText('30 days early')).toBeNull();
+
+  await fireEvent.press(screen.getByText('year'));
+  await fireEvent.press(screen.getByText('30 days early'));
+  expect(screen.getByText(/Each renewal is charged 30 days before the year it pays for begins: /)).toBeTruthy();
+
+  await fireEvent.press(screen.getByText('Add subscription'));
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  expect((await getSubscriptions(mockDb))[0].renewsEarlyDays).toBe(30);
 });

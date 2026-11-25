@@ -8,6 +8,10 @@
  * between charges nothing. Each charge costs the price in effect on that day, from the price
  * history, which runs across periods, plus tax when that's added on top (see `tax.ts`). A free trial is a subscription whose first period starts on
  * the day the trial converts.
+ *
+ * Some renew ahead of time (a domain renewed 30 days before it expires): with `renewsEarlyDays`, a
+ * period's first charge is still on its start, but each later one comes that many days before the
+ * cycle it renews would begin, so a domain bought on Nov 24 renews on Oct 25 every year after.
  */
 import { addDays, addMonthsClamped, daysBetween, type DateKey } from './dates';
 import { withTax, type Tax } from './tax';
@@ -41,9 +45,14 @@ export type Billing = {
   prices: PriceChange[];
   /** Tax on every charge. The prices are as typed, so without the tax when it's added on top. None if absent. */
   tax?: Tax;
+  /**
+   * How many days before each cycle begins it renews, for ones charged ahead of time (domains). A
+   * period's first charge is on its start regardless. 0 or absent for renewing on the day.
+   */
+  renewsEarlyDays?: number;
 };
 
-type Periods = Pick<Billing, 'periods'>;
+type Periods = Pick<Billing, 'periods' | 'renewsEarlyDays'>;
 
 /** The very first charge (for a trial, the day it converts). */
 export function firstPaymentDate(billing: Periods): DateKey {
@@ -117,8 +126,18 @@ function periodStop(periods: BillingPeriod[], i: number): DateKey | null {
   return end < next ? end : next;
 }
 
-/** The `n`th charge of a period, counting its start as 0. Computed from the start each time, so months don't drift. */
-export function paymentDate({ start, cycle }: Pick<BillingPeriod, 'start' | 'cycle'>, n: number) {
+/**
+ * The `n`th charge of a period, counting its start as 0. Computed from the start each time, so
+ * months don't drift. After the first, each comes `earlyDays` before the cycle it renews begins
+ * (see `renewsEarlyDays`), as much of that as fits the cycle.
+ */
+export function paymentDate(period: Pick<BillingPeriod, 'start' | 'cycle'>, n: number, earlyDays = 0) {
+  const date = cycleStart(period, n);
+  return n === 0 ? date : addDays(date, -earlyDaysFor(period.cycle, earlyDays));
+}
+
+/** The day a period's `n`th cycle begins, counting its start as 0: its `n`th charge, if it didn't renew early. */
+function cycleStart({ start, cycle }: Pick<BillingPeriod, 'start' | 'cycle'>, n: number) {
   switch (cycle.unit) {
     case 'day':
       return addDays(start, n * cycle.count);
@@ -146,12 +165,13 @@ const LONGEST_CYCLE_DAYS: Record<CycleUnit, number> = { day: 1, week: 7, month: 
 /** Every charge from `from` to `to`, both included, oldest first. */
 export function paymentsBetween(billing: Periods, from: DateKey, to: DateKey): DateKey[] {
   const dates: DateKey[] = [];
-  const { periods } = billing;
+  const { periods, renewsEarlyDays = 0 } = billing;
   periods.forEach((period, i) => {
     const stop = periodStop(periods, i);
     if (period.start > to || (stop !== null && stop <= from)) return;
+    // Renewing early only brings charges forward, so `cyclesBefore` still never overshoots.
     for (let n = cyclesBefore(period, from); ; n++) {
-      const date = paymentDate(period, n);
+      const date = paymentDate(period, n, renewsEarlyDays);
       if (date > to || (stop !== null && date >= stop)) break;
       if (date >= from) dates.push(date);
     }
@@ -161,13 +181,13 @@ export function paymentsBetween(billing: Periods, from: DateKey, to: DateKey): D
 
 /** The next charge on or after `from`, or null once cancelled. */
 export function nextPaymentOnOrAfter(billing: Periods, from: DateKey): DateKey | null {
-  const { periods } = billing;
+  const { periods, renewsEarlyDays = 0 } = billing;
   for (let i = 0; i < periods.length; i++) {
     const period = periods[i];
     const stop = periodStop(periods, i);
     if (stop !== null && stop <= from) continue;
     for (let n = cyclesBefore(period, from); ; n++) {
-      const date = paymentDate(period, n);
+      const date = paymentDate(period, n, renewsEarlyDays);
       if (stop !== null && date >= stop) break;
       if (date >= from) return date;
     }
@@ -183,6 +203,18 @@ export function nextPaymentOnOrAfter(billing: Periods, from: DateKey): DateKey |
 export function paidPeriodEnd(billing: Periods, today: DateKey): DateKey {
   // Never null: without a final end there's always a next charge.
   return nextPaymentOnOrAfter(withoutFinalEnd(billing), addDays(today, 1))!;
+}
+
+/**
+ * When what's paid for runs out if the charge on `date` (one of its charges) isn't made: the day
+ * the cycle it renews begins. For one that renews early (see `renewsEarlyDays`) that's this many
+ * days after it: a domain renewed on Oct 25 would otherwise expire on Nov 24. A period's first
+ * charge starts a cycle rather than renewing one, so it's that day itself.
+ */
+export function renewedCycleStart(billing: Periods, date: DateKey): DateKey {
+  const period = periodOn(billing, date);
+  if (period.start === date) return date;
+  return addDays(date, earlyDaysFor(period.cycle, billing.renewsEarlyDays ?? 0));
 }
 
 /** Whether a charge falls on `date`, ignoring the final cancellation. */
@@ -235,9 +267,26 @@ export function nextChargeOnOrAfter(billing: Billing, from: DateKey): Charge | n
  */
 export type ExpectedCharge = Charge & { latest: DateKey };
 
-/** The most days late a charge can land with `cycle`: less than its shortest cycle, so charges can't overlap. */
-export function maxChargeWindowDays(cycle: Cycle): number {
-  return SHORTEST_CYCLE_DAYS[cycle.unit] * cycle.count - 1;
+/**
+ * The most days late a charge can land with `cycle`: less than the shortest gap between charges,
+ * so they can't overlap. Renewing early shortens the gap after a period's first charge.
+ */
+export function maxChargeWindowDays(cycle: Cycle, renewsEarlyDays = 0): number {
+  return Math.max(0, shortestCycleDays(cycle) - 1 - earlyDaysFor(cycle, renewsEarlyDays));
+}
+
+/** The most days ahead `cycle` can renew: less than the cycle, so each renewal comes after the charge before it. */
+export function maxRenewsEarlyDays(cycle: Cycle): number {
+  return shortestCycleDays(cycle) - 1;
+}
+
+/** As much of `earlyDays` as `cycle` allows: a plan changed to a shorter cycle renews as early as it can. */
+function earlyDaysFor(cycle: Cycle, earlyDays: number): number {
+  return Math.min(Math.max(earlyDays, 0), maxRenewsEarlyDays(cycle));
+}
+
+function shortestCycleDays(cycle: Cycle): number {
+  return SHORTEST_CYCLE_DAYS[cycle.unit] * cycle.count;
 }
 
 const SHORTEST_CYCLE_DAYS: Record<CycleUnit, number> = { day: 1, week: 7, month: 28, year: 365 };
@@ -357,6 +406,11 @@ export function formatChargeWindow(days: number): string {
   if (days === 7) return 'a week';
   if (days % 7 === 0) return `${days / 7} weeks`;
   return days === 1 ? '1 day' : `${days} days`;
+}
+
+/** How far ahead it renews: "30 days early", "a week early". */
+export function formatRenewsEarly(days: number): string {
+  return `${formatChargeWindow(days)} early`;
 }
 
 /** "Monthly", "Yearly", "Every 3 months". */

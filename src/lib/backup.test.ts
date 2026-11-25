@@ -14,6 +14,7 @@ const netflix: Subscription = simpleSubscription({
   cancelledOn: null,
   reminderDaysBefore: 3,
   chargeWindowDays: 0,
+  renewsEarlyDays: 0,
   tax: NO_TAX,
   notes: 'Family plan, "shared"',
   prices: [
@@ -39,7 +40,7 @@ it('accepts a backup with spaces or lines around it', () => {
 it('refuses text that is not a backup, saying why', () => {
   expect(() => parseBackup('hello')).toThrow(BackupError);
   expect(() => parseBackup('{"app":"other"}')).toThrow("isn't a Subtracker backup");
-  expect(() => parseBackup(text({ version: 6 }))).toThrow('newer version');
+  expect(() => parseBackup(text({ version: 7 }))).toThrow('newer version');
   expect(() => parseBackup(text({ currency: 'XYZ' }))).toThrow('unknown currency');
 });
 
@@ -135,4 +136,15 @@ it('keeps the charges marked paid, and reads older backups as none', () => {
 
   expect(() => parseBackup(text({ subscriptions: [v4Sub] }))).toThrow('unreadable paid charges');
   expect(() => parseBackup(text({ subscriptions: [{ ...v4Sub, paidCharges: ['soon'] }] }))).toThrow("paid charge isn't a date");
+});
+
+it('keeps how early it renews, and reads older backups as on the day', () => {
+  const domain = { ...netflix, renewsEarlyDays: 30 };
+  expect(parseBackup(serializeBackup(createBackup([domain], 'EUR'))).subscriptions[0].renewsEarlyDays).toBe(30);
+
+  const { renewsEarlyDays: _early, ...v5Sub } = createBackup([domain], 'EUR').subscriptions[0];
+  expect(parseBackup(text({ version: 5, subscriptions: [v5Sub] })).subscriptions[0].renewsEarlyDays).toBe(0);
+
+  expect(() => parseBackup(text({ subscriptions: [v5Sub] }))).toThrow('unreadable early renewal');
+  expect(() => parseBackup(text({ subscriptions: [{ ...v5Sub, renewsEarlyDays: -1 }] }))).toThrow('unreadable early renewal');
 });

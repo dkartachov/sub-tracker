@@ -77,6 +77,11 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (subscription_id, charge_date)
   );
   `,
+  // For ones that renew ahead of time (a domain renewed 30 days before it expires): each charge
+  // after a period's first comes this many days before the cycle it renews begins. 0 for on the day.
+  `
+  ALTER TABLE subscriptions ADD COLUMN renews_early_days INTEGER NOT NULL DEFAULT 0 CHECK (renews_early_days >= 0);
+  `,
 ];
 
 /** The `user_version` of a fully migrated database. */

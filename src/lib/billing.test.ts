@@ -6,9 +6,12 @@ import {
   endsAfter,
   expectedChargesBetween,
   formatChargeWindow,
+  formatRenewsEarly,
   hasLanded,
   isDueNow,
   maxChargeWindowDays,
+  maxRenewsEarlyDays,
+  renewedCycleStart,
   nextExpectedCharge,
   newPeriodProblem,
   formatCycleAdverb,
@@ -273,5 +276,59 @@ describe('charges that can land late', () => {
 
   it('says how late', () => {
     expect([1, 3, 7, 14].map(formatChargeWindow)).toEqual(['1 day', '3 days', 'a week', '2 weeks']);
+  });
+
+  it('leaves room for renewing early', () => {
+    expect(maxChargeWindowDays({ count: 1, unit: 'year' }, 30)).toBe(334);
+    expect(maxChargeWindowDays({ count: 1, unit: 'month' }, 30)).toBe(0);
+  });
+});
+
+describe('renewing early', () => {
+  // A domain bought on Nov 24, 2026, renewed 30 days before each year runs out.
+  const domain: Billing = {
+    ...plan({
+      firstPaymentDate: '2026-11-24',
+      cycle: { count: 1, unit: 'year' },
+      prices: [{ amount: 1034, effectiveDate: '2026-11-24' }],
+    }),
+    renewsEarlyDays: 30,
+  };
+
+  it('charges on the first payment, then ahead of each cycle', () => {
+    expect(paymentsBetween(domain, '2026-01-01', '2029-12-31')).toEqual(['2026-11-24', '2027-10-25', '2028-10-25', '2029-10-25']);
+  });
+
+  it('finds the next renewal', () => {
+    expect(nextPaymentOnOrAfter(domain, '2026-11-25')).toBe('2027-10-25');
+    expect(nextPaymentOnOrAfter(domain, '2027-10-26')).toBe('2028-10-25');
+    expect(nextPaymentOnOrAfter(domain, '2040-01-01')).toBe('2040-10-25');
+    expect(paidPeriodEnd(domain, '2027-10-25')).toBe('2028-10-25');
+  });
+
+  it('says when what each charge renews would begin', () => {
+    expect(renewedCycleStart(domain, '2027-10-25')).toBe('2027-11-24');
+    expect(renewedCycleStart(domain, '2026-11-24')).toBe('2026-11-24');
+  });
+
+  it('starts each period on its day, renewing early after', () => {
+    const resumed: Billing = {
+      ...domain,
+      periods: [
+        { start: '2026-11-24', cycle: { count: 1, unit: 'year' }, end: '2027-10-25' },
+        { start: '2029-03-01', cycle: { count: 1, unit: 'year' }, end: null },
+      ],
+    };
+    expect(paymentsBetween(resumed, '2026-01-01', '2030-12-31')).toEqual(['2026-11-24', '2029-03-01', '2030-01-30']);
+  });
+
+  it('renews as early as a shorter plan allows', () => {
+    const monthly: Billing = { ...plan({ firstPaymentDate: '2026-01-31' }), renewsEarlyDays: 30 };
+    expect(maxRenewsEarlyDays({ count: 1, unit: 'month' })).toBe(27);
+    expect(paymentsBetween(monthly, '2026-01-01', '2026-03-31')).toEqual(['2026-01-31', '2026-02-01', '2026-03-04']);
+  });
+
+  it('says how early', () => {
+    expect([7, 30].map(formatRenewsEarly)).toEqual(['a week early', '30 days early']);
   });
 });

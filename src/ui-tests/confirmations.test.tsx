@@ -69,6 +69,7 @@ const netflix: SubscriptionInput = {
   isTrial: false,
   reminderDaysBefore: 3,
   chargeWindowDays: 0,
+  renewsEarlyDays: 0,
   tax: NO_TAX,
   notes: '',
 };

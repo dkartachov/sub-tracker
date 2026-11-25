@@ -12,6 +12,7 @@ const gym: SubscriptionInput = {
   isTrial: false,
   reminderDaysBefore: null,
   chargeWindowDays: 0,
+  renewsEarlyDays: 0,
   tax: NO_TAX,
   notes: '',
 };

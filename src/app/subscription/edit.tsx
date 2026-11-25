@@ -28,8 +28,12 @@ import { useTheme } from '@/hooks/use-theme';
 import {
   firstPaymentDate as firstPaymentOf,
   formatChargeWindow,
+  formatCycle,
+  formatRenewsEarly,
   lastPeriod,
   maxChargeWindowDays,
+  maxRenewsEarlyDays,
+  paymentDate,
   type Cycle,
   type CycleUnit,
 } from '@/lib/billing';
@@ -48,15 +52,31 @@ const DEFAULT_REMINDER_DAYS = 3;
 /** How late a charge can land, in days: for ones billed around a day rather than on it. */
 const CHARGE_WINDOW_OPTIONS = [0, 3, 7, 14];
 
-/** The choices that fit `cycle` (a window can't be as long as a cycle), keeping one already saved. */
-function chargeWindowOptions(cycle: Cycle | null, saved: number) {
-  const max = cycle ? maxChargeWindowDays(cycle) : 0;
-  const options = saved > 0 && !CHARGE_WINDOW_OPTIONS.includes(saved) ? [...CHARGE_WINDOW_OPTIONS, saved] : CHARGE_WINDOW_OPTIONS;
+/** How many days ahead it renews: for ones charged before the cycle they pay for begins, like domains. */
+const RENEWS_EARLY_OPTIONS = [0, 7, 14, 30, 60];
+
+/** Renewing early is offered from cycles this many days ahead fit in (two months and up), or once it's been set. */
+const RENEWS_EARLY_SHOWN_FROM = 30;
+
+/** `standard` that are at most `max`, plus one already saved that isn't among them, in order. */
+function dayOptions(standard: number[], saved: number, max: number) {
+  const options = saved > 0 && !standard.includes(saved) ? [...standard, saved] : standard;
   return options.filter((days) => days <= max).sort((a, b) => a - b);
+}
+
+/** The choices that fit `cycle` (a window can't be as long as the gap between charges), keeping one already saved. */
+function chargeWindowOptions(cycle: Cycle | null, saved: number, renewsEarlyDays: number) {
+  return dayOptions(CHARGE_WINDOW_OPTIONS, saved, cycle ? maxChargeWindowDays(cycle, renewsEarlyDays) : 0);
 }
 
 function chargeWindowLabel(days: number) {
   return days === 0 ? 'On the day' : `Up to ${formatChargeWindow(days)} late`;
+}
+
+function renewsEarlyLabel(days: number) {
+  if (days === 0) return 'On the day';
+  const text = formatRenewsEarly(days);
+  return text[0].toUpperCase() + text.slice(1);
 }
 
 /** What the tax comes to on `price`, or where the rate came from when there's no price to show it on. */
@@ -105,6 +125,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
     existing ? ((existing.reminderDaysBefore ?? -1) as ReminderOption) : DEFAULT_REMINDER_DAYS
   );
   const [chargeWindow, setChargeWindow] = useState(existing?.chargeWindowDays ?? 0);
+  const [renewsEarly, setRenewsEarly] = useState(existing?.renewsEarlyDays ?? 0);
   const [notes, setNotes] = useState(existing?.notes ?? '');
   const [saving, setSaving] = useState(false);
   // New ones start from the Settings region; each keeps its own rate after that.
@@ -126,9 +147,21 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const valid =
     name.trim() !== '' && cycle !== null && firstPaymentValid && taxRate !== null && (existing !== undefined || price !== null);
   const suggestions = existing ? [] : suggestTemplates(name);
-  const windowOptions = chargeWindowOptions(cycle, existing?.chargeWindowDays ?? 0);
-  // A daily plan, or a window left too long by a shorter cycle, charges on the day.
+  const savedRenewsEarly = existing?.renewsEarlyDays ?? 0;
+  const renewsEarlyMax = cycle ? maxRenewsEarlyDays(cycle) : 0;
+  const renewsEarlyOptions = dayOptions(RENEWS_EARLY_OPTIONS, savedRenewsEarly, renewsEarlyMax);
+  const showRenewsEarly = renewsEarlyOptions.length > 1 && (renewsEarlyMax >= RENEWS_EARLY_SHOWN_FROM || savedRenewsEarly > 0);
+  // One left too early for a shorter cycle renews on the day.
+  const renewsEarlyDays = showRenewsEarly && renewsEarlyOptions.includes(renewsEarly) ? renewsEarly : 0;
+  const windowOptions = chargeWindowOptions(cycle, existing?.chargeWindowDays ?? 0, renewsEarlyDays);
+  // A daily plan, or a window left too long by a shorter cycle or an early renewal, charges on the day.
   const chargeWindowDays = windowOptions.includes(chargeWindow) ? chargeWindow : 0;
+  // The first two renewals, to show what renewing early means. Only with one plan: after a plan
+  // change the renewals follow the later plans.
+  const renewals =
+    cycle && renewsEarlyDays > 0 && !multiplePeriods
+      ? [1, 2].map((n) => formatDateKey(paymentDate({ start: firstPaymentDate, cycle }, n, renewsEarlyDays)))
+      : null;
 
   const applyTemplate = (template: SubscriptionTemplate) => {
     setName(template.name);
@@ -148,6 +181,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
       isTrial,
       reminderDaysBefore: reminder === -1 ? null : reminder,
       chargeWindowDays,
+      renewsEarlyDays,
       tax,
       notes: notes.trim(),
     };
@@ -279,11 +313,24 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
           !isTrial &&
           !multiplePeriods && (
             <ThemedText type="small" themeColor="textSecondary">
-              Any past charge works: renewals are counted on from it.
+              {renewsEarlyDays > 0
+                ? 'The day you bought it, not a renewal: renewals are counted on from it.'
+                : 'Any past charge works: renewals are counted on from it.'}
             </ThemedText>
           )
         )}
       </Field>
+
+      {showRenewsEarly && (
+        <Field label="Renews">
+          <ChipGroup options={renewsEarlyOptions} value={renewsEarlyDays} onChange={setRenewsEarly} label={renewsEarlyLabel} />
+          <ThemedText type="small" themeColor="textSecondary">
+            {renewsEarlyDays === 0
+              ? 'For ones charged ahead of time, like a domain renewed 30 days before it expires, pick how early.'
+              : `Each renewal is charged ${formatChargeWindow(renewsEarlyDays)} before the ${formatCycle(cycle!)} it pays for begins${renewals ? `: ${renewals[0]}, then ${renewals[1]}` : ''}.`}
+          </ThemedText>
+        </Field>
+      )}
 
       {windowOptions.length > 1 && (
         <Field label="Charged">

@@ -11,7 +11,16 @@ import { PageHeader } from '@/components/page-header';
 import { ThemedText } from '@/components/themed-text';
 import { setCancelled, statusOf, useSubscription, type Subscription } from '@/db/subscriptions';
 import { useToday } from '@/hooks/use-today';
-import { chargedOn, chargesOn, finalEnd, firstPaymentDate, lastPeriod, paidPeriodEnd, withoutFinalEnd } from '@/lib/billing';
+import {
+  chargedOn,
+  chargesOn,
+  finalEnd,
+  firstPaymentDate,
+  lastPeriod,
+  paidPeriodEnd,
+  renewedCycleStart,
+  withoutFinalEnd,
+} from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
 import { addDays, formatDateKey, formatShortDate, fromDateKey, type DateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
@@ -33,6 +42,8 @@ function CancelForm({ sub }: { sub: Subscription }) {
   // The charge it would make next if it weren't cancelled, which is when a paid period runs out.
   // On a charge day that's the one after today's, which has already been paid.
   const periodEnd = paidPeriodEnd(sub, today);
+  // For one that renews early, that charge comes before what's paid for runs out (a domain's expiry).
+  const runsOut = renewedCycleStart(withoutFinalEnd(sub), periodEnd);
   const cancelledOn = finalEnd(sub);
   const firstPayment = firstPaymentDate(sub);
   const isTrial = statusOf(withoutFinalEnd(sub), today) === 'trial';
@@ -95,7 +106,9 @@ function CancelForm({ sub }: { sub: Subscription }) {
         <ChipGroup options={options} value={when} onChange={setWhen} label={label} />
         {when === 'periodEnd' && (
           <ThemedText type="small" themeColor="textSecondary">
-            You keep access until {formatDateKey(periodEnd)}, the day it would have charged next.
+            {runsOut === periodEnd
+              ? `You keep access until ${formatDateKey(periodEnd)}, the day it would have charged next.`
+              : `It won't renew on ${formatDateKey(periodEnd)}, and you keep it until ${formatDateKey(runsOut)}, when what you paid for runs out.`}
           </ThemedText>
         )}
         {when === 'other' && (

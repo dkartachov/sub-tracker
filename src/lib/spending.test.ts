@@ -15,6 +15,7 @@ function sub(overrides: Partial<SimpleSubscription>): Subscription {
     cancelledOn: null,
     reminderDaysBefore: null,
     chargeWindowDays: 0,
+    renewsEarlyDays: 0,
     tax: NO_TAX,
     notes: '',
     prices: [{ amount: 1000, effectiveDate: '2026-01-10' }],

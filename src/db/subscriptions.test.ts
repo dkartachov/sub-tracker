@@ -31,6 +31,7 @@ const netflix: SubscriptionInput = {
   isTrial: false,
   reminderDaysBefore: 3,
   chargeWindowDays: 0,
+  renewsEarlyDays: 0,
   tax: NO_TAX,
   notes: '',
 };
@@ -256,4 +257,16 @@ it('marks a charge paid and not paid again, and drops the marks with the subscri
 
   await deleteSubscription(db, id);
   expect(await db.getAllAsync('SELECT * FROM paid_charges')).toEqual([]);
+});
+
+it('saves how early it renews, and charges renewals that far ahead', async () => {
+  const db = await createTestDb();
+  const domain = { ...netflix, firstPaymentDate: '2026-11-24', cycle: { count: 1, unit: 'year' as const }, renewsEarlyDays: 30 };
+  const id = await createSubscription(db, domain, 1034);
+  const sub = (await getSubscription(db, id))!;
+  expect(sub.renewsEarlyDays).toBe(30);
+  expect(nextCharge(sub, '2026-11-25')?.date).toBe('2027-10-25');
+
+  await updateSubscription(db, id, { ...domain, renewsEarlyDays: 14 });
+  expect((await getSubscription(db, id))!.renewsEarlyDays).toBe(14);
 });

@@ -64,3 +64,11 @@ it('gives existing subscriptions no tax when adding tax', async () => {
   });
   await expect(db.runAsync('UPDATE subscriptions SET tax_rate = -1')).rejects.toThrow();
 });
+
+it('renews existing subscriptions on the day when adding early renewals', async () => {
+  const { createTestDb } = jest.requireActual<typeof import('@/test-utils/sqlite')>('@/test-utils/sqlite');
+  const db = await createTestDb();
+  await db.runAsync("INSERT INTO subscriptions (name, category, notes, created_at) VALUES ('Netflix', 'streaming', '', '')");
+  expect(await db.getFirstAsync('SELECT renews_early_days FROM subscriptions')).toEqual({ renews_early_days: 0 });
+  await expect(db.runAsync('UPDATE subscriptions SET renews_early_days = -1')).rejects.toThrow();
+});

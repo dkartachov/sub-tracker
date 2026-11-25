@@ -44,8 +44,10 @@ import {
   formatCycle,
   formatChargeWindow,
   formatCycleAdverb,
+  formatRenewsEarly,
   isDueNow,
   monthlyEquivalent,
+  renewedCycleStart,
   stoppedSince,
   type BillingPeriod,
 } from '@/lib/billing';
@@ -104,6 +106,8 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const chargeWindow = sub.chargeWindowDays;
   // A charge billed around a day that may land any day now, which can be marked paid once it has.
   const dueNow = status === 'active' && next !== null && chargeDueNow(sub, next.date, today);
+  // For one that renews early, when what's paid for runs out: the day the cycle the next charge renews begins.
+  const paidUntil = status === 'active' && next !== null ? renewedCycleStart(sub, next.date) : null;
 
   const markPaid = async () => {
     if (!next) return;
@@ -187,9 +191,11 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
             </ThemedText>
           </>
         )}
+        {paidUntil !== null && paidUntil !== next?.date && <InfoRow label="Paid until" value={formatDateKey(paidUntil)} />}
         {ends && <InfoRow label="Ends" value={dueDay(ends, ends, today)} />}
         {stopped && <InfoRow label="Cancelled" value={formatDateKey(stopped)} />}
         <InfoRow label="Billed" value={formatCycleAdverb(cycle)} />
+        {sub.renewsEarlyDays > 0 && <InfoRow label="Renews" value={formatRenewsEarly(sub.renewsEarlyDays)} />}
         {chargeWindow > 0 && <InfoRow label="Charge day" value={`Up to ${formatChargeWindow(chargeWindow)} late`} />}
         {sub.tax.rate > 0 && (
           <InfoRow
