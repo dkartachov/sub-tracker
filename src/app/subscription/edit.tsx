@@ -127,6 +127,9 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const [chargeWindow, setChargeWindow] = useState(existing?.chargeWindowDays ?? 0);
   const [renewsEarly, setRenewsEarly] = useState(existing?.renewsEarlyDays ?? 0);
   const [notes, setNotes] = useState(existing?.notes ?? '');
+  // Adding only: a discounted first payment, after which the regular price applies.
+  const [hasIntroPrice, setHasIntroPrice] = useState(false);
+  const [introPriceText, setIntroPriceText] = useState('');
   const [saving, setSaving] = useState(false);
   // New ones start from the Settings region; each keeps its own rate after that.
   const { region, tax: defaultTax } = useDefaultTax();
@@ -135,6 +138,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const [taxIncluded, setTaxIncluded] = useState(initialTax.included);
 
   const price = parseMoney(priceText, currency);
+  const introPrice = !existing && hasIntroPrice ? parseMoney(introPriceText, currency) : null;
   const taxRate = taxRateText.trim() === '' ? 0 : parseTaxRate(taxRateText);
   const tax: Tax = { rate: taxRate ?? 0, included: taxIncluded };
   // Editing, the price is the current one from the price history.
@@ -144,8 +148,14 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   // The first period has to keep at least its first charge before the next one takes over.
   const firstPeriodEnd = multiplePeriods ? existing!.periods[0].end : null;
   const firstPaymentValid = firstPeriodEnd === null || firstPaymentDate < firstPeriodEnd;
+  const introPriceValid = existing !== undefined || !hasIntroPrice || introPrice !== null;
   const valid =
-    name.trim() !== '' && cycle !== null && firstPaymentValid && taxRate !== null && (existing !== undefined || price !== null);
+    name.trim() !== '' &&
+    cycle !== null &&
+    firstPaymentValid &&
+    taxRate !== null &&
+    (existing !== undefined || price !== null) &&
+    introPriceValid;
   const suggestions = existing ? [] : suggestTemplates(name);
   const savedRenewsEarly = existing?.renewsEarlyDays ?? 0;
   const renewsEarlyMax = cycle ? maxRenewsEarlyDays(cycle) : 0;
@@ -161,6 +171,14 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const renewals =
     cycle && renewsEarlyDays > 0 && !multiplePeriods
       ? [1, 2].map((n) => formatDateKey(paymentDate({ start: firstPaymentDate, cycle }, n, renewsEarlyDays)))
+      : null;
+  // What the intro discount comes to: the first payment at its price, then the regular one.
+  const introSummary =
+    cycle && price !== null && introPrice !== null
+      ? `${formatMoney(withTax(introPrice, tax), currency)} on ${formatDateKey(firstPaymentDate)}, then ${formatMoney(
+          withTax(price, tax),
+          currency
+        )} from ${formatDateKey(paymentDate({ start: firstPaymentDate, cycle }, 1, renewsEarlyDays))}.`
       : null;
 
   const applyTemplate = (template: SubscriptionTemplate) => {
@@ -187,7 +205,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
     };
     try {
       if (existing) await updateSubscription(db, existing.id, input);
-      else await createSubscription(db, input, price!);
+      else await createSubscription(db, input, price!, introPrice);
       haptic.success();
       // Asked here, when a reminder has just been set up, rather than out of nowhere at launch.
       if (input.reminderDaysBefore !== null) requestNotificationPermission().catch(console.warn);
@@ -225,9 +243,47 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
       </Field>
 
       {!existing && (
-        <Field label={priceFieldLabel(tax, currency)}>
-          <TextField value={priceText} onChangeText={setPriceText} placeholder={moneyPlaceholder(currency)} keyboardType={currencyDecimals(currency) === 0 ? 'number-pad' : 'decimal-pad'} />
-        </Field>
+        <>
+          <Field label={priceFieldLabel(tax, currency, hasIntroPrice ? 'Regular price' : 'Price')}>
+            <TextField value={priceText} onChangeText={setPriceText} placeholder={moneyPlaceholder(currency)} keyboardType={currencyDecimals(currency) === 0 ? 'number-pad' : 'decimal-pad'} />
+          </Field>
+
+          <View style={styles.switchRow}>
+            <View style={styles.switchText}>
+              <ThemedText type="smallBold">Discounted first payment</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                An intro price, like a domain&apos;s first year. Renewals are at the regular price.
+              </ThemedText>
+            </View>
+            <Switch
+              value={hasIntroPrice}
+              onValueChange={(value) => {
+                haptic.select();
+                setHasIntroPrice(value);
+              }}
+              trackColor={{ true: theme.tint, false: theme.border }}
+              thumbColor={theme.backgroundElement}
+              accessibilityLabel="Discounted first payment"
+            />
+          </View>
+
+          {hasIntroPrice && (
+            <Field label={priceFieldLabel(tax, currency, 'First payment price')}>
+              <TextField
+                value={introPriceText}
+                onChangeText={setIntroPriceText}
+                placeholder={moneyPlaceholder(currency)}
+                keyboardType={currencyDecimals(currency) === 0 ? 'number-pad' : 'decimal-pad'}
+                accessibilityLabel="First payment price"
+              />
+              {introSummary && (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {introSummary}
+                </ThemedText>
+              )}
+            </Field>
+          )}
+        </>
       )}
 
       <Field label="Tax (%)">

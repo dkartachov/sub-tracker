@@ -279,3 +279,23 @@ it('saves how early a yearly one renews, offered from longer cycles', async () =
   await waitFor(() => expect(router.back).toHaveBeenCalled());
   expect((await getSubscriptions(mockDb))[0].renewsEarlyDays).toBe(30);
 });
+
+it('adds one with a discounted first payment, renewing at the regular price', async () => {
+  await renderScreen(<EditSubscriptionScreen />);
+
+  await fireEvent.changeText(screen.getByPlaceholderText('Netflix, climbing gym…'), 'example.com');
+  await fireEvent.changeText(screen.getByPlaceholderText('12.99'), '12');
+  await fireEvent.press(screen.getByText('year'));
+  await fireEvent(screen.getByLabelText('Discounted first payment'), 'valueChange', true);
+  await fireEvent.changeText(screen.getByLabelText('First payment price'), '8');
+  expect(screen.getByText(/^€8\.00 on .*, then €12\.00 from /)).toBeTruthy();
+
+  await fireEvent.press(screen.getByText('Add subscription'));
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  const [sub] = await getSubscriptions(mockDb);
+  const today = todayKey();
+  expect(sub.prices).toEqual([
+    { amount: 800, effectiveDate: today },
+    { amount: 1200, effectiveDate: `${Number(today.slice(0, 4)) + 1}${today.slice(4)}` },
+  ]);
+});

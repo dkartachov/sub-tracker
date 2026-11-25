@@ -22,6 +22,7 @@ import {
   priceOn,
   spentBetween,
   spentBy,
+  startingPrices,
   stoppedSince,
   type Billing,
 } from './billing';
@@ -330,5 +331,22 @@ describe('renewing early', () => {
 
   it('says how early', () => {
     expect([7, 30].map(formatRenewsEarly)).toEqual(['a week early', '30 days early']);
+  });
+});
+
+describe('startingPrices', () => {
+  const year = { start: '2026-11-24', cycle: { count: 1, unit: 'year' } } as const;
+
+  it('starts the regular price on the second charge after a discounted first payment', () => {
+    expect(startingPrices(year, 1200, 800)).toEqual([
+      { amount: 800, effectiveDate: '2026-11-24' },
+      { amount: 1200, effectiveDate: '2027-11-24' },
+    ]);
+    expect(startingPrices(year, 1200, 800, 30)[1].effectiveDate).toBe('2027-10-25');
+  });
+
+  it('is a single price without a discount', () => {
+    expect(startingPrices(year, 1200)).toEqual([{ amount: 1200, effectiveDate: '2026-11-24' }]);
+    expect(startingPrices(year, 1200, 1200)).toEqual([{ amount: 1200, effectiveDate: '2026-11-24' }]);
   });
 });

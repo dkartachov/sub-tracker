@@ -231,6 +231,22 @@ export function priceOn(prices: PriceChange[], date: DateKey): number {
   return amount;
 }
 
+/**
+ * The price history of a new subscription charging `amount`, or `firstAmount` for its first
+ * payment alone (an intro discount, like a domain's first year): the regular price then takes
+ * over on the second charge. A single price when there's no discount.
+ */
+export function startingPrices(
+  period: Pick<BillingPeriod, 'start' | 'cycle'>,
+  amount: number,
+  firstAmount: number | null = null,
+  renewsEarlyDays = 0
+): PriceChange[] {
+  const first: PriceChange = { amount: firstAmount ?? amount, effectiveDate: period.start };
+  if (firstAmount === null || firstAmount === amount) return [first];
+  return [first, { amount, effectiveDate: paymentDate(period, 1, renewsEarlyDays) }];
+}
+
 export type Charge = {
   date: DateKey;
   /** What's paid: the price, plus tax when that's added on top. */

@@ -13,6 +13,7 @@ import {
   nextExpectedCharge,
   priceOn,
   spentBy,
+  startingPrices,
   stoppedSince,
   type Billing,
   type BillingPeriod,
@@ -208,8 +209,16 @@ export async function getSubscription(db: SQLiteDatabase, id: number): Promise<S
   return toSubscription(row, periods.map(toPeriod), prices.map(toPrice), paid.map(toPaid));
 }
 
-/** Adds a subscription charging `amount` from its first payment, returning its ID. */
-export async function createSubscription(db: SQLiteDatabase, input: SubscriptionInput, amount: number) {
+/**
+ * Adds a subscription charging `amount` from its first payment, returning its ID. With
+ * `firstAmount`, the first payment alone costs that (an intro discount) and `amount` follows.
+ */
+export async function createSubscription(
+  db: SQLiteDatabase,
+  input: SubscriptionInput,
+  amount: number,
+  firstAmount: number | null = null
+) {
   let id = 0;
   await db.withTransactionAsync(async () => {
     const result = await db.runAsync(
@@ -234,12 +243,15 @@ export async function createSubscription(db: SQLiteDatabase, input: Subscription
       input.cycle.count,
       input.cycle.unit
     );
-    await db.runAsync(
-      'INSERT INTO price_changes (subscription_id, amount, effective_date) VALUES (?, ?, ?)',
-      id,
-      amount,
-      input.firstPaymentDate
-    );
+    const period = { start: input.firstPaymentDate, cycle: input.cycle };
+    for (const price of startingPrices(period, amount, firstAmount, input.renewsEarlyDays)) {
+      await db.runAsync(
+        'INSERT INTO price_changes (subscription_id, amount, effective_date) VALUES (?, ?, ?)',
+        id,
+        price.amount,
+        price.effectiveDate
+      );
+    }
   });
   return id;
 }
