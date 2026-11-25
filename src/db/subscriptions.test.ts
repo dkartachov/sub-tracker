@@ -7,11 +7,13 @@ import {
   deletePeriod,
   deletePriceChange,
   deleteSubscription,
+  expectedCharge,
   endsOn,
   getSubscription,
   getSubscriptions,
   nextCharge,
   setCancelled,
+  setChargePaid,
   startPeriod,
   statusOf,
   trialWontConvert,
@@ -233,4 +235,25 @@ it('saves how late a charge can land', async () => {
 
   await updateSubscription(db, id, { ...netflix, chargeWindowDays: 3 });
   expect((await getSubscription(db, id))!.chargeWindowDays).toBe(3);
+});
+
+it('marks a charge paid and not paid again, and drops the marks with the subscription', async () => {
+  const db = await createTestDb();
+  const id = await createSubscription(db, { ...netflix, chargeWindowDays: 7 }, 999);
+
+  await setChargePaid(db, id, '2026-02-15', true);
+  await setChargePaid(db, id, '2026-02-15', true);
+  await setChargePaid(db, id, '2026-01-15', true);
+  const sub = (await getSubscription(db, id))!;
+  expect(sub.paidCharges).toEqual(['2026-01-15', '2026-02-15']);
+  expect((await getSubscriptions(db))[0].paidCharges).toEqual(['2026-01-15', '2026-02-15']);
+  expect(expectedCharge(sub, '2026-02-18')).toMatchObject({ date: '2026-03-15' });
+  // Totals count it either way.
+  expect(spentBetween(sub, '2026-01-01', '2026-02-28')).toBe(1998);
+
+  await setChargePaid(db, id, '2026-02-15', false);
+  expect(expectedCharge((await getSubscription(db, id))!, '2026-02-18')).toMatchObject({ date: '2026-02-15' });
+
+  await deleteSubscription(db, id);
+  expect(await db.getAllAsync('SELECT * FROM paid_charges')).toEqual([]);
 });

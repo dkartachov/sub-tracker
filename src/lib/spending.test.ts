@@ -139,3 +139,45 @@ it('lists a charge due a few days ago that can still land, until its last day', 
   ]);
   expect(getOverview([coffee], '2026-03-10').upcoming.map((c) => c.date)).toEqual(['2026-04-02']);
 });
+
+it('leaves out a charge marked paid before its last day, still counting it in what was spent', () => {
+  const coffee = sub({ name: 'Coffee', firstPaymentDate: '2026-01-02', chargeWindowDays: 7, paidCharges: ['2026-03-02'] });
+  const overview = getOverview([coffee], '2026-03-05');
+  expect(overview.upcoming.map((c) => c.date)).toEqual(['2026-04-02']);
+  expect(overview.spentThisYear).toBe(3000);
+});
+
+describe('a charge that can land late, in the monthly chart', () => {
+  // Billed on the 2nd, landing as late as the 9th.
+  const coffee = (paidCharges: string[] = []) =>
+    sub({ name: 'Coffee', firstPaymentDate: '2026-01-02', chargeWindowDays: 7, prices: [{ amount: 1800, effectiveDate: '2026-01-02' }], paidCharges });
+
+  it('is still to charge while it may land', () => {
+    expect(monthlySpending([coffee()], '2026-03-05', 1)).toEqual([{ month: '2026-03-01', charged: 0, scheduled: 1800 }]);
+  });
+
+  it('is charged once marked paid', () => {
+    expect(monthlySpending([coffee(['2026-03-02'])], '2026-03-05', 1)).toEqual([{ month: '2026-03-01', charged: 1800, scheduled: 0 }]);
+  });
+
+  it('is charged once its last day has passed', () => {
+    expect(monthlySpending([coffee()], '2026-03-09', 1)).toEqual([{ month: '2026-03-01', charged: 0, scheduled: 1800 }]);
+    expect(monthlySpending([coffee()], '2026-03-10', 1)).toEqual([{ month: '2026-03-01', charged: 1800, scheduled: 0 }]);
+  });
+
+  it('stays still to charge in its own month when it may land in the next', () => {
+    const lateInMonth = sub({ firstPaymentDate: '2026-01-28', chargeWindowDays: 7, prices: [{ amount: 1800, effectiveDate: '2026-01-28' }] });
+    expect(monthlySpending([lateInMonth], '2026-03-02', 2)).toEqual([
+      { month: '2026-02-01', charged: 0, scheduled: 1800 },
+      { month: '2026-03-01', charged: 0, scheduled: 1800 },
+    ]);
+  });
+});
+
+it("doesn't count a charge due now in what was spent until it's paid or its last day passes", () => {
+  const coffee = (paidCharges: string[] = []) =>
+    sub({ name: 'Coffee', firstPaymentDate: '2026-01-02', chargeWindowDays: 7, paidCharges });
+  expect(getOverview([coffee()], '2026-03-05').spentThisYear).toBe(2000);
+  expect(getOverview([coffee(['2026-03-02'])], '2026-03-05').spentThisYear).toBe(3000);
+  expect(getOverview([coffee()], '2026-03-10').spentThisYear).toBe(3000);
+});

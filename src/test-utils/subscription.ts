@@ -14,9 +14,9 @@ export function simpleBilling({ firstPaymentDate, cycle, cancelledOn, prices }: 
   return { periods: [{ start: firstPaymentDate, cycle, end: cancelledOn }], prices };
 }
 
-export type SimpleSubscription = Omit<Subscription, 'periods'> & SimpleBilling;
+export type SimpleSubscription = Omit<Subscription, 'periods' | 'paidCharges'> & SimpleBilling & { paidCharges?: DateKey[] };
 
-/** A subscription with one billing period, from its first payment, cycle and cancellation. */
-export function simpleSubscription({ firstPaymentDate, cycle, cancelledOn, ...rest }: SimpleSubscription): Subscription {
-  return { ...rest, periods: [{ start: firstPaymentDate, cycle, end: cancelledOn }] };
+/** A subscription with one billing period, from its first payment, cycle and cancellation, and nothing marked paid unless given. */
+export function simpleSubscription({ firstPaymentDate, cycle, cancelledOn, paidCharges = [], ...rest }: SimpleSubscription): Subscription {
+  return { ...rest, paidCharges, periods: [{ start: firstPaymentDate, cycle, end: cancelledOn }] };
 }

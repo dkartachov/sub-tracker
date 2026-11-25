@@ -1,14 +1,14 @@
 /** The numbers on the Overview tab, from the subscriptions alone. */
 import type { Category } from '@/constants/categories';
-import { nextCharge, statusOf, trialWontConvert, type Subscription } from '@/db/subscriptions';
+import { nextCharge, spentSoFar, statusOf, trialWontConvert, type Subscription } from '@/db/subscriptions';
 
 import {
   chargeOn,
   chargesBetween,
   expectedChargesBetween,
   firstPaymentDate,
+  hasLanded,
   monthlyEquivalent,
-  spentBetween,
   type ExpectedCharge,
 } from './billing';
 import { addDays, addMonthsClamped, type DateKey } from './dates';
@@ -25,7 +25,7 @@ export type Overview = {
   yearly: number;
   activeCount: number;
   trialCount: number;
-  /** Charged so far this calendar year, up to and including today. */
+  /** Paid so far this calendar year, up to and including today: one due now that hasn't landed isn't yet. */
   spentThisYear: number;
   /**
    * Charges in the next `UPCOMING_DAYS`, soonest first, and ones due in the last few days that may
@@ -65,7 +65,7 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
 
   const upcoming = subs
     .flatMap((sub) =>
-      expectedChargesBetween(sub, today, upcomingEnd, sub.chargeWindowDays).map((charge) => ({ sub, ...charge }))
+      expectedChargesBetween(sub, today, upcomingEnd, sub.chargeWindowDays, sub.paidCharges).map((charge) => ({ sub, ...charge }))
     )
     .sort((a, b) => a.date.localeCompare(b.date) || a.sub.name.localeCompare(b.sub.name));
 
@@ -95,7 +95,7 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
     yearly: monthly * 12,
     activeCount: running.filter((sub) => statusOf(sub, today) === 'active').length,
     trialCount: running.filter((sub) => statusOf(sub, today) === 'trial').length,
-    spentThisYear: subs.reduce((sum, sub) => sum + spentBetween(sub, yearStart, today), 0),
+    spentThisYear: subs.reduce((sum, sub) => sum + spentSoFar(sub, yearStart, today), 0),
     upcoming,
     trialsEnding,
     recentlyConverted,
@@ -109,9 +109,15 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
 export type MonthSpending = {
   /** The month's first day, `YYYY-MM-01`. */
   month: DateKey;
-  /** Charged in the month up to and including today. */
+  /**
+   * Charged in the month up to and including today. A charge that can land late counts once it's
+   * marked paid or its last possible day has passed (see `hasLanded`).
+   */
   charged: number;
-  /** Still to charge later in the month. Only the current month has any. */
+  /**
+   * Still to charge: later in the month, or due now and not yet marked paid. Only the current
+   * month has any, and the one before while a charge from its last days may still land.
+   */
   scheduled: number;
 };
 
@@ -125,7 +131,7 @@ export function monthlySpending(subs: Subscription[], today: DateKey, months = 1
     let scheduled = 0;
     for (const sub of subs) {
       for (const charge of chargesBetween(sub, month, monthEnd)) {
-        if (charge.date <= today) charged += charge.amount;
+        if (hasLanded(charge.date, sub.chargeWindowDays, today, sub.paidCharges)) charged += charge.amount;
         else scheduled += charge.amount;
       }
     }

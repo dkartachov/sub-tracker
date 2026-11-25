@@ -68,6 +68,15 @@ const MIGRATIONS: string[] = [
   ALTER TABLE subscriptions ADD COLUMN tax_rate INTEGER NOT NULL DEFAULT 0 CHECK (tax_rate >= 0 AND tax_rate < 100000);
   ALTER TABLE subscriptions ADD COLUMN price_includes_tax INTEGER NOT NULL DEFAULT 1;
   `,
+  // Charges marked paid by hand, by their billing day, so one billed around a day stops showing as
+  // due once it's landed, before its last possible day.
+  `
+  CREATE TABLE paid_charges (
+    subscription_id INTEGER NOT NULL REFERENCES subscriptions (id) ON DELETE CASCADE,
+    charge_date TEXT NOT NULL,
+    PRIMARY KEY (subscription_id, charge_date)
+  );
+  `,
 ];
 
 /** The `user_version` of a fully migrated database. */

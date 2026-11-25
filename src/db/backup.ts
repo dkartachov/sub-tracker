@@ -10,6 +10,7 @@ export async function replaceAllSubscriptions(db: SQLiteDatabase, subs: BackupSu
   const createdAt = new Date().toISOString();
   // Exclusive, so nothing else on the connection (a reminder sync, say) can read it half restored.
   await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync('DELETE FROM paid_charges');
     await txn.runAsync('DELETE FROM price_changes');
     await txn.runAsync('DELETE FROM billing_periods');
     await txn.runAsync('DELETE FROM subscriptions');
@@ -43,6 +44,13 @@ export async function replaceAllSubscriptions(db: SQLiteDatabase, subs: BackupSu
           result.lastInsertRowId,
           price.amount,
           price.effectiveDate
+        );
+      }
+      for (const chargeDate of sub.paidCharges) {
+        await txn.runAsync(
+          'INSERT INTO paid_charges (subscription_id, charge_date) VALUES (?, ?)',
+          result.lastInsertRowId,
+          chargeDate
         );
       }
     }

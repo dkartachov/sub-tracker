@@ -39,7 +39,7 @@ it('accepts a backup with spaces or lines around it', () => {
 it('refuses text that is not a backup, saying why', () => {
   expect(() => parseBackup('hello')).toThrow(BackupError);
   expect(() => parseBackup('{"app":"other"}')).toThrow("isn't a Subtracker backup");
-  expect(() => parseBackup(text({ version: 5 }))).toThrow('newer version');
+  expect(() => parseBackup(text({ version: 6 }))).toThrow('newer version');
   expect(() => parseBackup(text({ currency: 'XYZ' }))).toThrow('unknown currency');
 });
 
@@ -124,4 +124,15 @@ it('keeps how late charges can land, and reads older backups as on the day', () 
 
   expect(() => parseBackup(text({ subscriptions: [{ ...v2Sub, chargeWindowDays: -1 }] }))).toThrow('unreadable charge day');
   expect(() => parseBackup(text({ subscriptions: [v2Sub] }))).toThrow('unreadable charge day');
+});
+
+it('keeps the charges marked paid, and reads older backups as none', () => {
+  const coffee = { ...netflix, chargeWindowDays: 7, paidCharges: ['2026-02-10', '2026-03-10'] };
+  expect(parseBackup(serializeBackup(createBackup([coffee], 'EUR'))).subscriptions[0].paidCharges).toEqual(coffee.paidCharges);
+
+  const { paidCharges: _paid, ...v4Sub } = createBackup([coffee], 'EUR').subscriptions[0];
+  expect(parseBackup(text({ version: 4, subscriptions: [v4Sub] })).subscriptions[0].paidCharges).toEqual([]);
+
+  expect(() => parseBackup(text({ subscriptions: [v4Sub] }))).toThrow('unreadable paid charges');
+  expect(() => parseBackup(text({ subscriptions: [{ ...v4Sub, paidCharges: ['soon'] }] }))).toThrow("paid charge isn't a date");
 });

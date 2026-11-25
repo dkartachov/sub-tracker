@@ -19,8 +19,8 @@ function monthName(month: string, style: 'long' | 'narrow') {
 }
 
 /**
- * What was charged per month, one bar each, this month last with the charges still to come stacked
- * on top in a lighter shade. Tapping a bar shows its amounts above the plot; it starts on this month.
+ * What was charged per month, one bar each, this month last with the charges still to come (ones
+ * due now that may still land included) stacked on top in a lighter shade. Tapping a bar shows its amounts above the plot; it starts on this month.
  */
 export function SpendingChart({ months }: { months: MonthSpending[] }) {
   const theme = useTheme();

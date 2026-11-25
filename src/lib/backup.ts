@@ -29,9 +29,9 @@ import { NO_TAX, TAX_RATE_SCALE, type Tax } from './tax';
  * Changes whenever the format does, so an older app can refuse a backup it can't read. Version 1
  * had one billing cycle per subscription (`firstPaymentDate`, `cycle`, `cancelledOn`) where
  * version 2 has `periods`. Version 3 adds `chargeWindowDays`, 0 for older ones. Version 4 adds
- * `tax`, none for older ones. All four restore.
+ * `tax`, none for older ones. Version 5 adds `paidCharges`, none for older ones. All five restore.
  */
-export const BACKUP_VERSION = 4;
+export const BACKUP_VERSION = 5;
 
 const BACKUP_APP = 'subtracker';
 
@@ -128,7 +128,7 @@ function parseTax(tax: unknown, label: string): Tax {
 function parseSubscription(value: unknown, index: number, version: number): BackupSubscription {
   const where = `Subscription ${index + 1}`;
   if (!isObject(value)) fail(`${where} is unreadable.`);
-  const { name, category, isTrial, reminderDaysBefore, chargeWindowDays, tax, notes, prices } = value;
+  const { name, category, isTrial, reminderDaysBefore, chargeWindowDays, tax, notes, prices, paidCharges } = value;
 
   if (typeof name !== 'string' || name.trim() === '') fail(`${where} has no name.`);
   const label = `“${name}”`;
@@ -167,6 +167,10 @@ function parseSubscription(value: unknown, index: number, version: number): Back
     fail(`${label} has two prices on the same day.`);
   }
 
+  if (version >= 5 && !Array.isArray(paidCharges)) fail(`${label} has unreadable paid charges.`);
+  const parsedPaid: DateKey[] =
+    version >= 5 ? [...new Set((paidCharges as unknown[]).map((date) => dateKey(date, `${label}'s paid charge`)))].sort() : [];
+
   return {
     name: name.trim(),
     category: category as Category,
@@ -177,6 +181,7 @@ function parseSubscription(value: unknown, index: number, version: number): Back
     tax: parsedTax,
     notes,
     prices: parsedPrices,
+    paidCharges: parsedPaid,
   };
 }
 
@@ -190,7 +195,7 @@ export function parseBackup(text: string): Backup {
   }
   if (!isObject(data) || data.app !== BACKUP_APP) fail("This isn't a Subtracker backup.");
   const { version } = data;
-  if (version !== 1 && version !== 2 && version !== 3 && version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
   if (!CURRENCIES.includes(data.currency as Currency)) fail('This backup has an unknown currency.');
   if (!Array.isArray(data.subscriptions)) fail('This backup has no subscriptions list.');
 

@@ -1,10 +1,13 @@
 import {
   chargesBetween,
+  chargesLandedBy,
   chargesOn,
   cycleOn,
   endsAfter,
   expectedChargesBetween,
   formatChargeWindow,
+  hasLanded,
+  isDueNow,
   maxChargeWindowDays,
   nextExpectedCharge,
   newPeriodProblem,
@@ -15,6 +18,7 @@ import {
   paymentsBetween,
   priceOn,
   spentBetween,
+  spentBy,
   stoppedSince,
   type Billing,
 } from './billing';
@@ -221,6 +225,40 @@ describe('charges that can land late', () => {
       ['2026-11-16', '2026-11-23'],
       ['2026-12-16', '2026-12-23'],
     ]);
+  });
+
+  it('skips a charge marked paid, which has landed', () => {
+    const paid = ['2026-11-16'];
+    expect(nextExpectedCharge(coffee, '2026-11-20', 7, paid)).toMatchObject({ date: '2026-12-16', latest: '2026-12-23' });
+    // On its billing day too, if it landed then.
+    expect(nextExpectedCharge(coffee, '2026-11-16', 7, paid)).toMatchObject({ date: '2026-12-16' });
+    expect(expectedChargesBetween(coffee, '2026-11-20', '2026-12-31', 7, paid).map((c) => c.date)).toEqual(['2026-12-16']);
+    expect(spentBetween(coffee, '2026-11-01', '2026-11-30')).toBe(1800);
+  });
+
+  it('is due now from its billing day to its last, until marked paid', () => {
+    expect(isDueNow('2026-11-16', 7, '2026-11-15')).toBe(false);
+    expect(isDueNow('2026-11-16', 7, '2026-11-16')).toBe(true);
+    expect(isDueNow('2026-11-16', 7, '2026-11-23')).toBe(true);
+    expect(isDueNow('2026-11-16', 7, '2026-11-24')).toBe(false);
+    expect(isDueNow('2026-11-16', 7, '2026-11-20', ['2026-11-16'])).toBe(false);
+    expect(isDueNow('2026-11-16', 0, '2026-11-16')).toBe(false);
+  });
+
+  it('has landed once marked paid or past its last day', () => {
+    expect(hasLanded('2026-11-16', 7, '2026-11-15')).toBe(false);
+    expect(hasLanded('2026-11-16', 7, '2026-11-20')).toBe(false);
+    expect(hasLanded('2026-11-16', 7, '2026-11-20', ['2026-11-16'])).toBe(true);
+    expect(hasLanded('2026-11-16', 7, '2026-11-24')).toBe(true);
+    expect(hasLanded('2026-11-16', 0, '2026-11-16')).toBe(true);
+  });
+
+  it('counts what has been paid so far, leaving out one that may still land', () => {
+    expect(chargesLandedBy(coffee, '2026-10-01', '2026-11-20', 7).map((c) => c.date)).toEqual(['2026-10-16']);
+    expect(spentBy(coffee, '2026-10-01', '2026-11-20', 7)).toBe(1800);
+    expect(spentBy(coffee, '2026-10-01', '2026-11-20', 7, ['2026-11-16'])).toBe(3600);
+    expect(spentBy(coffee, '2026-10-01', '2026-11-24', 7)).toBe(3600);
+    expect(spentBy(coffee, '2026-10-01', '2026-11-20', 0)).toBe(3600);
   });
 
   it('still counts each charge on its billing day', () => {

@@ -17,6 +17,8 @@ import { ThemedText } from '@/components/themed-text';
 import { CATEGORY_INFO } from '@/constants/categories';
 import { Spacing } from '@/constants/theme';
 import {
+  chargeDueNow,
+  chargesSoFar,
   currentPrice,
   deletePeriod,
   deletePriceChange,
@@ -24,6 +26,8 @@ import {
   endsOn,
   expectedCharge,
   setCancelled,
+  setChargePaid,
+  spentSoFar,
   statusOf,
   trialWontConvert,
   typedPrice,
@@ -34,19 +38,19 @@ import { useTheme } from '@/hooks/use-theme';
 import { useToday } from '@/hooks/use-today';
 import {
   chargeOn,
-  chargesBetween,
   cycleOn,
   finalEnd,
   firstPaymentDate,
   formatCycle,
   formatChargeWindow,
   formatCycleAdverb,
+  isDueNow,
   monthlyEquivalent,
-  spentBetween,
   stoppedSince,
   type BillingPeriod,
 } from '@/lib/billing';
 import { formatMoney, useCurrency } from '@/lib/currency';
+import { haptic } from '@/lib/haptics';
 import { formatTaxRate, taxOn } from '@/lib/tax';
 import {
   addDays,
@@ -98,6 +102,14 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const firstPayment = firstPaymentDate(sub);
   const reminder = sub.reminderDaysBefore;
   const chargeWindow = sub.chargeWindowDays;
+  // A charge billed around a day that may land any day now, which can be marked paid once it has.
+  const dueNow = status === 'active' && next !== null && chargeDueNow(sub, next.date, today);
+
+  const markPaid = async () => {
+    if (!next) return;
+    await setChargePaid(db, sub.id, next.date, true);
+    haptic.success();
+  };
 
   const editCancellation = () => router.push({ pathname: '/subscription/cancel', params: { id: String(sub.id) } });
   const startPlan = (kind: 'resume' | 'change') =>
@@ -159,13 +171,21 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
         }>
         {next && (
           <InfoRow
-            label={status === 'trial' ? 'Trial ends' : status === 'cancelled' ? 'Resumes' : 'Next charge'}
+            label={status === 'trial' ? 'Trial ends' : status === 'cancelled' ? 'Resumes' : dueNow ? 'Due now' : 'Next charge'}
             value={
               status === 'trial'
                 ? dueDay(next.date, next.date, today)
                 : dueDay(next.date, next.latest, today)
             }
           />
+        )}
+        {dueNow && (
+          <>
+            <Button title="Mark as paid" variant="secondary" onPress={markPaid} />
+            <ThemedText type="small" themeColor="textSecondary">
+              Already charged? Marking it paid stops it showing as due. Totals count it either way.
+            </ThemedText>
+          </>
         )}
         {ends && <InfoRow label="Ends" value={dueDay(ends, ends, today)} />}
         {stopped && <InfoRow label="Cancelled" value={formatDateKey(stopped)} />}
@@ -190,8 +210,8 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
       </Section>
 
       <Section title="Spent">
-        <InfoRow label={`In ${today.slice(0, 4)}`} value={money(spentBetween(sub, `${today.slice(0, 4)}-01-01`, today))} />
-        <InfoRow label="All time" value={money(spentBetween(sub, firstPayment, today))} />
+        <InfoRow label={`In ${today.slice(0, 4)}`} value={money(spentSoFar(sub, `${today.slice(0, 4)}-01-01`, today))} />
+        <InfoRow label="All time" value={money(spentSoFar(sub, firstPayment, today))} />
       </Section>
 
       <ChargeHistory sub={sub} today={today} />
@@ -303,13 +323,28 @@ function TrialNotice({ sub, today }: { sub: Subscription; today: DateKey }) {
   );
 }
 
-/** Every charge so far, newest first: the latest few, then all on request. */
+/**
+ * Every charge paid so far, newest first: the latest few, then all on request. One due now that
+ * hasn't landed isn't listed until it's marked paid or its last day passes. One marked paid while it
+ * could still land says so, and a long press marks it not paid yet.
+ */
 function ChargeHistory({ sub, today }: { sub: Subscription; today: DateKey }) {
+  const db = useSQLiteContext();
   const currency = useCurrency();
   const [showAll, setShowAll] = useState(false);
-  const charges = chargesBetween(sub, firstPaymentDate(sub), today).reverse();
+  const charges = chargesSoFar(sub, firstPaymentDate(sub), today).reverse();
   if (charges.length === 0) return null;
   const shown = showAll ? charges : charges.slice(0, CHARGES_SHOWN);
+  // Only while it could still land does being marked paid change anything.
+  const undoable = (date: DateKey) => sub.paidCharges.includes(date) && isDueNow(date, sub.chargeWindowDays, today);
+
+  const unmark = (date: DateKey) =>
+    showDialog({
+      title: 'Mark as not paid yet?',
+      message: `The charge from ${formatDateKey(date)} shows as due again until it lands.`,
+      cancelLabel: 'Keep as paid',
+      confirm: { label: 'Not paid yet', onPress: () => setChargePaid(db, sub.id, date, false) },
+    });
 
   return (
     <Section
@@ -323,9 +358,18 @@ function ChargeHistory({ sub, today }: { sub: Subscription; today: DateKey }) {
           </PressableScale>
         )
       }>
-      {shown.map((charge) => (
-        <InfoRow key={charge.date} label={formatDateKey(charge.date)} value={formatMoney(charge.amount, currency)} />
-      ))}
+      {shown.map((charge) =>
+        undoable(charge.date) ? (
+          <PressableScale
+            key={charge.date}
+            accessibilityHint="Long press to mark as not paid yet"
+            onLongPress={() => unmark(charge.date)}>
+            <InfoRow label={`${formatDateKey(charge.date)} · paid`} value={formatMoney(charge.amount, currency)} />
+          </PressableScale>
+        ) : (
+          <InfoRow key={charge.date} label={formatDateKey(charge.date)} value={formatMoney(charge.amount, currency)} />
+        )
+      )}
     </Section>
   );
 }

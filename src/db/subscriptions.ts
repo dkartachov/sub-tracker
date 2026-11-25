@@ -3,13 +3,16 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { toCategory, type Category } from '@/constants/categories';
 import {
   chargedOn,
+  chargesLandedBy,
   CYCLE_UNITS,
   endsAfter,
   firstPaymentDate,
+  isDueNow,
   newPeriodProblem,
   nextChargeOnOrAfter,
   nextExpectedCharge,
   priceOn,
+  spentBy,
   stoppedSince,
   type Billing,
   type BillingPeriod,
@@ -32,6 +35,11 @@ export type Subscription = Billing & {
   /** Its own rate, filled in from the Settings tax region when it was added. */
   tax: Tax;
   notes: string;
+  /**
+   * Billing days of charges marked paid by hand, oldest first: one billed around a day that's
+   * landed stops showing as due before its last possible day. Totals don't depend on it.
+   */
+  paidCharges: DateKey[];
 };
 
 /**
@@ -40,7 +48,7 @@ export type Subscription = Billing & {
  * after that it changes through the price history, and the rest of the billing through
  * cancelling, resuming and changing plan.
  */
-export type SubscriptionInput = Omit<Subscription, 'id' | 'prices' | 'periods'> & {
+export type SubscriptionInput = Omit<Subscription, 'id' | 'prices' | 'periods' | 'paidCharges'> & {
   firstPaymentDate: DateKey;
   cycle: Cycle;
 };
@@ -76,10 +84,26 @@ export function nextCharge(sub: Subscription, today: DateKey = todayKey()) {
 
 /**
  * The next charge still to come, allowing for it to land late (see `chargeWindowDays`): one due a
- * few days ago counts until its last possible day. For showing when it's due; totals use `nextCharge`.
+ * few days ago counts until its last possible day, unless it's been marked paid. For showing when
+ * it's due; totals use `nextCharge`.
  */
 export function expectedCharge(sub: Subscription, today: DateKey = todayKey()) {
-  return nextExpectedCharge(sub, today, sub.chargeWindowDays);
+  return nextExpectedCharge(sub, today, sub.chargeWindowDays, sub.paidCharges);
+}
+
+/** The charges paid from `from` up to `today`, oldest first: one still due now that hasn't landed isn't yet. */
+export function chargesSoFar(sub: Subscription, from: DateKey, today: DateKey = todayKey()) {
+  return chargesLandedBy(sub, from, today, sub.chargeWindowDays, sub.paidCharges);
+}
+
+/** What's been paid from `from` up to `today`: the total of `chargesSoFar`. */
+export function spentSoFar(sub: Subscription, from: DateKey, today: DateKey = todayKey()) {
+  return spentBy(sub, from, today, sub.chargeWindowDays, sub.paidCharges);
+}
+
+/** Whether the charge billed on `date` may land any day now (see `isDueNow`), so it can be marked paid. */
+export function chargeDueNow(sub: Subscription, date: DateKey, today: DateKey = todayKey()) {
+  return isDueNow(date, sub.chargeWindowDays, today, sub.paidCharges);
 }
 
 /** What's charged today, tax included, or the first charge for a subscription that hasn't started. */
@@ -122,7 +146,9 @@ function toPeriod(row: PeriodRow): BillingPeriod {
   };
 }
 
-function toSubscription(row: SubscriptionRow, periods: BillingPeriod[], prices: PriceChange[]): Subscription {
+type PaidRow = { subscription_id: number; charge_date: string };
+
+function toSubscription(row: SubscriptionRow, periods: BillingPeriod[], prices: PriceChange[], paidCharges: DateKey[]): Subscription {
   return {
     id: row.id,
     name: row.name,
@@ -134,6 +160,7 @@ function toSubscription(row: SubscriptionRow, periods: BillingPeriod[], prices: 
     notes: row.notes,
     periods,
     prices,
+    paidCharges,
   };
 }
 
@@ -151,15 +178,18 @@ const SELECT_SUBSCRIPTIONS =
   'SELECT id, name, category, is_trial, reminder_days_before, charge_window_days, tax_rate, price_includes_tax, notes FROM subscriptions';
 const SELECT_PERIODS = 'SELECT subscription_id, start_date, cycle_count, cycle_unit, end_date FROM billing_periods';
 const SELECT_PRICES = 'SELECT subscription_id, amount, effective_date FROM price_changes';
+const SELECT_PAID = 'SELECT subscription_id, charge_date FROM paid_charges';
 
 const toPrice = (row: PriceRow): PriceChange => ({ amount: row.amount, effectiveDate: row.effective_date });
+const toPaid = (row: PaidRow): DateKey => row.charge_date;
 
 /** Every subscription with its billing and price history, by name. */
 export async function getSubscriptions(db: SQLiteDatabase): Promise<Subscription[]> {
   const rows = await db.getAllAsync<SubscriptionRow>(`${SELECT_SUBSCRIPTIONS} ORDER BY name COLLATE NOCASE, id`);
   const periods = groupBy(await db.getAllAsync<PeriodRow>(`${SELECT_PERIODS} ORDER BY start_date, id`), toPeriod);
   const prices = groupBy(await db.getAllAsync<PriceRow>(`${SELECT_PRICES} ORDER BY effective_date, id`), toPrice);
-  return rows.map((row) => toSubscription(row, periods.get(row.id) ?? [], prices.get(row.id) ?? []));
+  const paid = groupBy(await db.getAllAsync<PaidRow>(`${SELECT_PAID} ORDER BY charge_date`), toPaid);
+  return rows.map((row) => toSubscription(row, periods.get(row.id) ?? [], prices.get(row.id) ?? [], paid.get(row.id) ?? []));
 }
 
 export async function getSubscription(db: SQLiteDatabase, id: number): Promise<Subscription | null> {
@@ -167,7 +197,8 @@ export async function getSubscription(db: SQLiteDatabase, id: number): Promise<S
   if (!row) return null;
   const periods = await db.getAllAsync<PeriodRow>(`${SELECT_PERIODS} WHERE subscription_id = ? ORDER BY start_date, id`, id);
   const prices = await db.getAllAsync<PriceRow>(`${SELECT_PRICES} WHERE subscription_id = ? ORDER BY effective_date, id`, id);
-  return toSubscription(row, periods.map(toPeriod), prices.map(toPrice));
+  const paid = await db.getAllAsync<PaidRow>(`${SELECT_PAID} WHERE subscription_id = ? ORDER BY charge_date`, id);
+  return toSubscription(row, periods.map(toPeriod), prices.map(toPrice), paid.map(toPaid));
 }
 
 /** Adds a subscription charging `amount` from its first payment, returning its ID. */
@@ -359,8 +390,20 @@ export async function deleteSubscription(db: SQLiteDatabase, id: number) {
   await db.runAsync('DELETE FROM subscriptions WHERE id = ?', id);
 }
 
+/**
+ * Marks the charge billed on `chargeDate` as paid (it's landed), or with `paid` false, as not yet.
+ * Only what's shown as still to come changes: totals count every charge either way.
+ */
+export async function setChargePaid(db: SQLiteDatabase, id: number, chargeDate: DateKey, paid: boolean) {
+  if (paid) {
+    await db.runAsync('INSERT OR IGNORE INTO paid_charges (subscription_id, charge_date) VALUES (?, ?)', id, chargeDate);
+  } else {
+    await db.runAsync('DELETE FROM paid_charges WHERE subscription_id = ? AND charge_date = ?', id, chargeDate);
+  }
+}
+
 /** Every table a subscription is read from, for change listeners. */
-export const SUBSCRIPTION_TABLES = ['subscriptions', 'billing_periods', 'price_changes'];
+export const SUBSCRIPTION_TABLES = ['subscriptions', 'billing_periods', 'price_changes', 'paid_charges'];
 
 export function useSubscriptions() {
   return useDbQuery(getSubscriptions, SUBSCRIPTION_TABLES);

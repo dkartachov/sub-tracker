@@ -249,15 +249,65 @@ function expected(charge: Charge, windowDays: number): ExpectedCharge {
 /**
  * The next charge still to come when charges can land up to `windowDays` late: the first whose
  * latest day is on or after `today`, so one due a few days ago that may not have landed yet counts.
+ * Charges in `paid` (by billing day) have landed already, so they're skipped.
  */
-export function nextExpectedCharge(billing: Billing, today: DateKey, windowDays: number): ExpectedCharge | null {
-  const charge = nextChargeOnOrAfter(billing, addDays(today, -windowDays));
+export function nextExpectedCharge(
+  billing: Billing,
+  today: DateKey,
+  windowDays: number,
+  paid: readonly DateKey[] = []
+): ExpectedCharge | null {
+  let charge = nextChargeOnOrAfter(billing, addDays(today, -windowDays));
+  while (charge && paid.includes(charge.date)) charge = nextChargeOnOrAfter(billing, addDays(charge.date, 1));
   return charge && expected(charge, windowDays);
 }
 
-/** Every charge that can still land from `from` to `to`, oldest first: as `chargesBetween`, plus ones due earlier that may land late. */
-export function expectedChargesBetween(billing: Billing, from: DateKey, to: DateKey, windowDays: number): ExpectedCharge[] {
-  return chargesBetween(billing, addDays(from, -windowDays), to).map((charge) => expected(charge, windowDays));
+/**
+ * Every charge that can still land from `from` to `to`, oldest first: as `chargesBetween`, plus ones
+ * due earlier that may land late, less the ones in `paid` (by billing day), which have landed.
+ */
+export function expectedChargesBetween(
+  billing: Billing,
+  from: DateKey,
+  to: DateKey,
+  windowDays: number,
+  paid: readonly DateKey[] = []
+): ExpectedCharge[] {
+  return chargesBetween(billing, addDays(from, -windowDays), to)
+    .filter((charge) => !paid.includes(charge.date))
+    .map((charge) => expected(charge, windowDays));
+}
+
+/** Whether the charge billed on `date` may land any day now: today is within its window and it isn't marked paid. */
+export function isDueNow(date: DateKey, windowDays: number, today: DateKey, paid: readonly DateKey[] = []): boolean {
+  return windowDays > 0 && date <= today && today <= addDays(date, windowDays) && !paid.includes(date);
+}
+
+/**
+ * Whether the charge billed on `date` has been taken by `today`: its day has come and, for one that
+ * can land late, it's been marked paid or its last possible day has passed.
+ */
+export function hasLanded(date: DateKey, windowDays: number, today: DateKey, paid: readonly DateKey[] = []): boolean {
+  return date <= today && !isDueNow(date, windowDays, today, paid);
+}
+
+/**
+ * The charges taken from `from` up to `today`, oldest first: as `chargesBetween`, less any still due
+ * now that hasn't landed (see `hasLanded`). What's been paid so far, for the charge list and "spent".
+ */
+export function chargesLandedBy(
+  billing: Billing,
+  from: DateKey,
+  today: DateKey,
+  windowDays: number,
+  paid: readonly DateKey[] = []
+): Charge[] {
+  return chargesBetween(billing, from, today).filter((charge) => hasLanded(charge.date, windowDays, today, paid));
+}
+
+/** Total of `chargesLandedBy`: what's been paid from `from` up to `today`. */
+export function spentBy(billing: Billing, from: DateKey, today: DateKey, windowDays: number, paid: readonly DateKey[] = []): number {
+  return chargesLandedBy(billing, from, today, windowDays, paid).reduce((sum, charge) => sum + charge.amount, 0);
 }
 
 /** Total charged from `from` to `to`, both included. */

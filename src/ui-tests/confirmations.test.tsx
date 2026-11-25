@@ -20,11 +20,13 @@ import {
   createSubscription,
   getSubscriptions,
   setCancelled,
+  setChargePaid,
   startPeriod,
   type SubscriptionInput,
 } from '@/db/subscriptions';
 import { createBackup, serializeBackup } from '@/lib/backup';
 import { getCurrency, setCurrency } from '@/lib/currency';
+import { addDays, todayKey } from '@/lib/dates';
 import { createTestDb } from '@/test-utils/sqlite';
 import { NO_TAX } from '@/lib/tax';
 import { appliedTaxSetting, taxRegionSetting } from '@/lib/tax-setting';
@@ -340,4 +342,51 @@ it('marks the selected tax region, for screen readers too', async () => {
   expect(screen.getByRole('radio', { name: /Canada: Québec/ })).toBeSelected();
   expect(screen.getByRole('radio', { name: /^No tax/ })).not.toBeSelected();
   taxRegionSetting.set('');
+});
+
+describe('marking a charge paid', () => {
+  // Billed two days ago, landing up to a week late, so it's due now.
+  const coffee = (): SubscriptionInput => ({ ...netflix, firstPaymentDate: addDays(todayKey(), -2), chargeWindowDays: 7 });
+
+  it('marks the charge due now as paid', async () => {
+    const id = await createSubscription(mockDb, coffee(), 1800);
+    await renderSubscription(id);
+    expect(screen.getByText('Due now')).toBeTruthy();
+    // Not paid yet, so not among the charges or in what's been spent.
+    expect(screen.queryByText('Charges · 1')).toBeNull();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Mark as paid' }));
+    await waitFor(async () => expect((await getSubscriptions(mockDb))[0].paidCharges).toEqual([addDays(todayKey(), -2)]));
+  });
+
+  it('no longer shows a paid one as due, and a long press on it in the charges marks it not paid', async () => {
+    const id = await createSubscription(mockDb, coffee(), 1800);
+    await setChargePaid(mockDb, id, addDays(todayKey(), -2), true);
+    await renderSubscription(id);
+    expect(screen.queryByText('Due now')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mark as paid' })).toBeNull();
+
+    await fireEvent(screen.getByText(/· paid$/), 'longPress');
+    expect(screen.getByText('Mark as not paid yet?')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Not paid yet' }));
+    expectNoDialog('Mark as not paid yet?');
+    await waitFor(async () => expect((await getSubscriptions(mockDb))[0].paidCharges).toEqual([]));
+  });
+
+  it('keeps it paid when told to', async () => {
+    const id = await createSubscription(mockDb, coffee(), 1800);
+    await setChargePaid(mockDb, id, addDays(todayKey(), -2), true);
+    await renderSubscription(id);
+
+    await fireEvent(screen.getByText(/· paid$/), 'longPress');
+    await fireEvent.press(screen.getByRole('button', { name: 'Keep as paid' }));
+    expectNoDialog('Mark as not paid yet?');
+    expect((await getSubscriptions(mockDb))[0].paidCharges).toHaveLength(1);
+  });
+
+  it("isn't offered for a charge on an exact day", async () => {
+    const id = await createSubscription(mockDb, { ...coffee(), chargeWindowDays: 0 }, 1800);
+    await renderSubscription(id);
+    expect(screen.queryByRole('button', { name: 'Mark as paid' })).toBeNull();
+  });
 });

@@ -33,10 +33,12 @@ it('replaces everything with the backup, price history included', async () => {
         { amount: 1299, effectiveDate: '2026-01-01' },
         { amount: 1499, effectiveDate: '2026-03-01' },
       ],
+      paidCharges: ['2026-02-01'],
     },
   ]);
 
   const subs = await getSubscriptions(db);
+  expect(subs[0].paidCharges).toEqual(['2026-02-01']);
   expect(subs.map((s) => [s.name, s.periods.map((p) => [p.start, p.cycle.unit, p.end]), s.prices.map((p) => p.amount)])).toEqual([
     [
       'Netflix',
@@ -60,6 +62,7 @@ it('keeps what was there when a row fails', async () => {
         ...gym,
         periods: [{ start: '2026-01-01', cycle: gym.cycle, end: null }],
         prices: [{ amount: 0, effectiveDate: '2026-01-01' }],
+        paidCharges: [],
       },
     ])
   ).rejects.toThrow();
