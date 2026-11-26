@@ -47,6 +47,7 @@ import {
   formatRenewsEarly,
   isDueNow,
   monthlyEquivalent,
+  paymentsLeft,
   renewedCycleStart,
   stoppedSince,
   type BillingPeriod,
@@ -97,6 +98,8 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const status = statusOf(sub, today);
   const next = expectedCharge(sub, today);
   const ends = endsOn(sub, today);
+  // For one ending on a set day (a mortgage paid off then), the charges still to come before it.
+  const left = ends !== null && next !== null ? paymentsLeft(sub, next.date, ends) : [];
   const price = next?.amount ?? currentPrice(sub, today);
   const cycle = next?.cycle ?? cycleOn(sub, today);
   const stopped = stoppedSince(sub, today);
@@ -193,6 +196,12 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
         )}
         {paidUntil !== null && paidUntil !== next?.date && <InfoRow label="Paid until" value={formatDateKey(paidUntil)} />}
         {ends && <InfoRow label="Ends" value={dueDay(ends, ends, today)} />}
+        {left.length > 0 && (
+          <InfoRow
+            label="Payments left"
+            value={`${left.length} · last ${formatDateKey(left[left.length - 1])}`}
+          />
+        )}
         {stopped && <InfoRow label="Cancelled" value={formatDateKey(stopped)} />}
         <InfoRow label="Billed" value={formatCycleAdverb(cycle)} />
         {sub.renewsEarlyDays > 0 && <InfoRow label="Renews" value={formatRenewsEarly(sub.renewsEarlyDays)} />}

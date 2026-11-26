@@ -46,6 +46,30 @@ it('totals what is still running', () => {
   ]);
 });
 
+it('keeps housing out of the subscription totals, with its own', () => {
+  const mortgage = sub({ id: 5, name: 'Mortgage', category: 'housing', firstPaymentDate: '2026-01-01', prices: [{ amount: 200000, effectiveDate: '2026-01-01' }] });
+  const overview = getOverview([sub({ id: 1 }), mortgage], TODAY);
+
+  expect(overview.monthly).toBe(1000);
+  expect(overview.activeCount).toBe(1);
+  expect(overview.spentThisYear).toBe(2000);
+  expect(overview.byCategory).toEqual([{ category: 'streaming', monthly: 1000 }]);
+  expect(overview.housing).toEqual({
+    monthly: 200000,
+    yearly: 200000 * 12,
+    activeCount: 1,
+    trialCount: 0,
+    // Jan 1, Feb 1 and Mar 1.
+    spentThisYear: 600000,
+    byCategory: [{ category: 'housing', monthly: 200000 }],
+  });
+  // Upcoming charges are everything about to leave the account, housing included.
+  expect(overview.upcoming.map((c) => [c.sub.name, c.date])).toEqual([
+    ['Netflix', '2026-03-10'],
+    ['Mortgage', '2026-04-01'],
+  ]);
+});
+
 it('counts what was charged this year, cancelled subscriptions included', () => {
   const overview = getOverview([sub({ id: 1 }), sub({ id: 3, cancelledOn: '2026-02-01' })], TODAY);
   // Jan 10 and Feb 10 for the first, Jan 10 only for the cancelled one.

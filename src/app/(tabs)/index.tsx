@@ -25,7 +25,7 @@ import {
   fromDateKey,
   type DateKey,
 } from '@/lib/dates';
-import { getOverview, monthlySpending, UPCOMING_DAYS } from '@/lib/spending';
+import { getOverview, isHousing, monthlySpending, UPCOMING_DAYS } from '@/lib/spending';
 
 /** Upcoming charges beyond this many are left to the Subscriptions tab. */
 const UPCOMING_SHOWN = 6;
@@ -54,6 +54,8 @@ export default function OverviewScreen() {
   const overview = getOverview(subs, today);
   const money = (minor: number) => formatMoney(minor, currency);
   const biggestCategory = overview.byCategory[0]?.monthly ?? 0;
+  const { housing } = overview;
+  const year = today.slice(0, 4);
 
   return (
     <Screen
@@ -71,6 +73,17 @@ export default function OverviewScreen() {
           {overview.trialCount > 0 && ` · ${overview.trialCount} on trial`}
         </ThemedText>
       </Card>
+
+      {(housing.monthly > 0 || housing.spentThisYear > 0) && (
+        <Section title="Housing">
+          <InfoRow label="Per month" value={money(housing.monthly)} />
+          <InfoRow label="Per year" value={money(housing.yearly)} />
+          <InfoRow label={`Spent in ${year}`} value={money(housing.spentThisYear)} />
+          <ThemedText type="small" themeColor="textSecondary">
+            Rent, mortgage and other housing costs, kept out of the subscription totals.
+          </ThemedText>
+        </Section>
+      )}
 
       {overview.trialsEnding.length > 0 && (
         <Section title="Trials ending soon">
@@ -140,10 +153,10 @@ export default function OverviewScreen() {
       )}
 
       <Section title="Last 12 months">
-        <SpendingChart months={monthlySpending(subs, today)} />
+        <SpendingChart months={monthlySpending(subs.filter((sub) => !isHousing(sub)), today)} />
       </Section>
 
-      <Section title={`Spent in ${today.slice(0, 4)}`}>
+      <Section title={`Spent in ${year}`}>
         <ThemedText type="stat">{money(overview.spentThisYear)}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
           Charged since January 1, including subscriptions you&apos;ve since cancelled.

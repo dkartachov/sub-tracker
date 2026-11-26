@@ -11,6 +11,7 @@ export const CATEGORIES = [
   'cloud',
   'utilities',
   'food',
+  'housing',
   'other',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -37,8 +38,16 @@ export const CATEGORY_INFO: Record<Category, CategoryInfo> = {
   cloud: { label: 'Cloud', icon: { ios: 'icloud.fill', android: 'cloud' }, color: '#0090FF' },
   utilities: { label: 'Utilities', icon: { ios: 'bolt.fill', android: 'bolt' }, color: '#F76B15' },
   food: { label: 'Food & groceries', icon: { ios: 'cart.fill', android: 'shopping_cart' }, color: '#12A594' },
+  housing: { label: 'Housing', icon: { ios: 'house.fill', android: 'home' }, color: '#AB6400' },
   other: { label: 'Other', icon: { ios: 'square.grid.2x2.fill', android: 'category' }, color: '#8B8D98' },
 };
+
+/**
+ * Rent, mortgage and other housing costs. They're tracked like any other regular payment, but kept
+ * out of the subscription totals on the Overview and shown on their own, since one mortgage would
+ * otherwise outweigh everything else.
+ */
+export const HOUSING: Category = 'housing';
 
 export function toCategory(value: string): Category {
   return CATEGORIES.find((c) => c === value) ?? 'other';

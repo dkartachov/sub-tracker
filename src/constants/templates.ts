@@ -40,6 +40,11 @@ export const TEMPLATES: SubscriptionTemplate[] = [
   { name: 'JetBrains All Products Pack', category: 'development', cycle: yearly },
   { name: 'Phone plan', category: 'utilities', cycle: monthly },
   { name: 'Internet', category: 'utilities', cycle: monthly },
+  { name: 'Mortgage', category: 'housing', cycle: monthly },
+  { name: 'Rent', category: 'housing', cycle: monthly },
+  { name: 'Home insurance', category: 'housing', cycle: yearly },
+  { name: 'Property tax', category: 'housing', cycle: yearly },
+  { name: 'HOA fees', category: 'housing', cycle: monthly },
 ];
 
 /** How many suggestions show at once. */

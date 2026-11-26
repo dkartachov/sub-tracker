@@ -179,6 +179,14 @@ export function paymentsBetween(billing: Periods, from: DateKey, to: DateKey): D
   return dates;
 }
 
+/**
+ * The charges still to come before charges stop on `end` (from `endsAfter`): from `from`, the next
+ * charge, to the last one before `end`. How many payments are left on a mortgage paid off then.
+ */
+export function paymentsLeft(billing: Periods, from: DateKey, end: DateKey): DateKey[] {
+  return end > from ? paymentsBetween(billing, from, addDays(end, -1)) : [];
+}
+
 /** The next charge on or after `from`, or null once cancelled. */
 export function nextPaymentOnOrAfter(billing: Periods, from: DateKey): DateKey | null {
   const { periods, renewsEarlyDays = 0 } = billing;

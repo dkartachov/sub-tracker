@@ -19,6 +19,7 @@ import {
   nextPaymentOnOrAfter,
   paidPeriodEnd,
   paymentsBetween,
+  paymentsLeft,
   priceOn,
   spentBetween,
   spentBy,
@@ -61,6 +62,42 @@ describe('paymentsBetween', () => {
   it('handles multi-week cycles', () => {
     const biweekly = plan({ firstPaymentDate: '2026-01-01', cycle: { count: 2, unit: 'week' } });
     expect(paymentsBetween(biweekly, '2026-01-10', '2026-02-15')).toEqual(['2026-01-15', '2026-01-29', '2026-02-12']);
+  });
+});
+
+describe('paymentsLeft', () => {
+  // A 30-year mortgage paid on the 1st, paid off on Jan 1, 2056.
+  const mortgage = plan({ firstPaymentDate: '2026-01-01', cancelledOn: '2056-01-01' });
+
+  it('counts every charge from the next one to the last before it ends', () => {
+    const left = paymentsLeft(mortgage, '2026-12-01', '2056-01-01');
+    expect(left).toHaveLength(1 + 29 * 12);
+    expect(left[0]).toBe('2026-12-01');
+    expect(left[left.length - 1]).toBe('2055-12-01');
+  });
+
+  it('follows a plan change before the end', () => {
+    const refinanced = {
+      ...mortgage,
+      periods: [
+        { start: '2026-01-01', cycle: { count: 1, unit: 'month' as const }, end: '2027-01-15' },
+        { start: '2027-01-15', cycle: { count: 1, unit: 'month' as const }, end: '2027-06-15' },
+      ],
+    };
+    expect(paymentsLeft(refinanced, '2026-11-01', '2027-06-15')).toEqual([
+      '2026-11-01',
+      '2026-12-01',
+      '2027-01-01',
+      '2027-01-15',
+      '2027-02-15',
+      '2027-03-15',
+      '2027-04-15',
+      '2027-05-15',
+    ]);
+  });
+
+  it('has none left once the end is reached', () => {
+    expect(paymentsLeft(mortgage, '2056-01-01', '2056-01-01')).toEqual([]);
   });
 });
 

@@ -1,5 +1,11 @@
-/** The numbers on the Overview tab, from the subscriptions alone. */
-import type { Category } from '@/constants/categories';
+/**
+ * The numbers on the Overview tab, from the subscriptions alone.
+ *
+ * Housing (rent, a mortgage) is kept apart: the totals, the categories and the chart are for
+ * subscriptions, and housing gets its own totals in `housing`. Upcoming charges list both, since
+ * that's what's about to leave the account.
+ */
+import { HOUSING, type Category } from '@/constants/categories';
 import { nextCharge, spentSoFar, statusOf, trialWontConvert, type Subscription } from '@/db/subscriptions';
 
 import {
@@ -15,7 +21,8 @@ import { addDays, addMonthsClamped, type DateKey } from './dates';
 
 export type UpcomingCharge = ExpectedCharge & { sub: Subscription };
 
-export type Overview = {
+/** What a group of subscriptions costs: on average from now on, and what it's cost this year. */
+export type Totals = {
   /**
    * Average per month across everything that will charge again, trials at the price they convert
    * to. One cancelled for a later day with no charge left before then costs nothing more.
@@ -27,6 +34,14 @@ export type Overview = {
   trialCount: number;
   /** Paid so far this calendar year, up to and including today: one due now that hasn't landed isn't yet. */
   spentThisYear: number;
+  /** Monthly cost per category, biggest first, without empty ones. */
+  byCategory: { category: Category; monthly: number }[];
+};
+
+/** The subscription totals, without housing, which has its own. */
+export type Overview = Totals & {
+  /** Rent, mortgage and the like, kept out of the subscription totals. */
+  housing: Totals;
   /**
    * Charges in the next `UPCOMING_DAYS`, soonest first, and ones due in the last few days that may
    * still land (see `chargeWindowDays`).
@@ -36,8 +51,6 @@ export type Overview = {
   trialsEnding: UpcomingCharge[];
   /** Trials that turned paid in the last `RECENTLY_CONVERTED_DAYS`, most recent first, at their first charge. */
   recentlyConverted: UpcomingCharge[];
-  /** Monthly cost per category, biggest first, without empty ones. */
-  byCategory: { category: Category; monthly: number }[];
 };
 
 export const UPCOMING_DAYS = 30;
@@ -48,20 +61,14 @@ export const TRIAL_WARNING_DAYS = 14;
 /** Trials that converted within this many days are called out too, in case it went unnoticed. */
 export const RECENTLY_CONVERTED_DAYS = 7;
 
+/** Housing (rent, a mortgage), which the Overview keeps apart from the subscription totals. */
+export function isHousing(sub: Pick<Subscription, 'category'>) {
+  return sub.category === HOUSING;
+}
+
 export function getOverview(subs: Subscription[], today: DateKey): Overview {
   const running = subs.filter((sub) => statusOf(sub, today) !== 'cancelled');
   const upcomingEnd = addDays(today, UPCOMING_DAYS - 1);
-
-  const categoryTotals = new Map<Category, number>();
-  let monthly = 0;
-  for (const sub of running) {
-    // A trial costs nothing yet, but what it will cost is what's worth knowing.
-    const next = nextCharge(sub, today);
-    if (!next) continue;
-    const perMonth = monthlyEquivalent(next.amount, next.cycle);
-    monthly += perMonth;
-    categoryTotals.set(sub.category, (categoryTotals.get(sub.category) ?? 0) + perMonth);
-  }
 
   const upcoming = subs
     .flatMap((sub) =>
@@ -88,6 +95,29 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
     .map(firstCharge)
     .sort((a, b) => b.date.localeCompare(a.date));
 
+  return {
+    ...totals(subs.filter((sub) => !isHousing(sub)), today),
+    housing: totals(subs.filter(isHousing), today),
+    upcoming,
+    trialsEnding,
+    recentlyConverted,
+  };
+}
+
+function totals(subs: Subscription[], today: DateKey): Totals {
+  const running = subs.filter((sub) => statusOf(sub, today) !== 'cancelled');
+
+  const categoryTotals = new Map<Category, number>();
+  let monthly = 0;
+  for (const sub of running) {
+    // A trial costs nothing yet, but what it will cost is what's worth knowing.
+    const next = nextCharge(sub, today);
+    if (!next) continue;
+    const perMonth = monthlyEquivalent(next.amount, next.cycle);
+    monthly += perMonth;
+    categoryTotals.set(sub.category, (categoryTotals.get(sub.category) ?? 0) + perMonth);
+  }
+
   const yearStart = `${today.slice(0, 4)}-01-01`;
 
   return {
@@ -96,9 +126,6 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
     activeCount: running.filter((sub) => statusOf(sub, today) === 'active').length,
     trialCount: running.filter((sub) => statusOf(sub, today) === 'trial').length,
     spentThisYear: subs.reduce((sum, sub) => sum + spentSoFar(sub, yearStart, today), 0),
-    upcoming,
-    trialsEnding,
-    recentlyConverted,
     byCategory: [...categoryTotals]
       .map(([category, total]) => ({ category, monthly: total }))
       .filter(({ monthly: total }) => total > 0)
@@ -121,7 +148,10 @@ export type MonthSpending = {
   scheduled: number;
 };
 
-/** What was charged in each of the last `months` calendar months, this one last and in full. */
+/**
+ * What was charged in each of the last `months` calendar months, this one last and in full. Pass
+ * the subscriptions without housing for the Overview's chart.
+ */
 export function monthlySpending(subs: Subscription[], today: DateKey, months = 12): MonthSpending[] {
   const thisMonth = `${today.slice(0, 7)}-01`;
   return Array.from({ length: months }, (_, i) => {
