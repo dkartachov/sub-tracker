@@ -92,6 +92,8 @@ it('adds a bill from a suggestion, ending after a last payment, with no trial or
   await renderScreen(<EditSubscriptionScreen />);
 
   expect(screen.getByText('New bill')).toBeTruthy();
+  // Added from the Bills tab, so it's a bill: there's no switching it here.
+  expect(screen.queryByText('Type')).toBeNull();
   expect(screen.queryByText('Free trial')).toBeNull();
   expect(screen.queryByText('Discounted first payment')).toBeNull();
   await fireEvent.changeText(screen.getByPlaceholderText('Mortgage, internet…'), 'mort');
@@ -108,17 +110,18 @@ it('adds a bill from a suggestion, ending after a last payment, with no trial or
   expect(finalEnd(sub)).toBe(addDays(addMonthsClamped(todayKey(), 12 * 25), 1));
 });
 
-it('switches between subscription and bill, with the categories of each', async () => {
+it('moves a subscription to the bills when editing, with the categories of bills', async () => {
+  const id = await createSubscription(mockDb, { ...netflix, name: 'Internet', category: 'other' }, 4500);
+  mockParams = { id: String(id) };
   await renderScreen(<EditSubscriptionScreen />);
-  await fireEvent.changeText(screen.getByPlaceholderText('Netflix, climbing gym…'), 'Internet');
-  await fireEvent.changeText(screen.getByPlaceholderText('12.99'), '45');
+  expect(await screen.findByText('Edit subscription')).toBeTruthy();
   expect(screen.queryByText('Housing')).toBeNull();
 
   await fireEvent.press(screen.getByText('Bill'));
   expect(screen.getByText('Housing')).toBeTruthy();
   expect(screen.queryByText('Streaming')).toBeNull();
   await fireEvent.press(screen.getByText('Utilities'));
-  await fireEvent.press(screen.getByText('Add bill'));
+  await fireEvent.press(screen.getByText('Save'));
 
   await waitFor(() => expect(router.back).toHaveBeenCalled());
   expect((await getSubscriptions(mockDb))[0]).toMatchObject({ kind: 'bill', category: 'utilities' });

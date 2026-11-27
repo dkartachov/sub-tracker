@@ -61,9 +61,10 @@ const RENEWS_EARLY_SHOWN_FROM = 30;
 
 const KIND_LABELS: Record<Kind, string> = { subscription: 'Subscription', bill: 'Bill' };
 
+/** Editing only: what moving it to the other kind does. Adding, the tab it was added from decides. */
 const KIND_HINTS: Record<Kind, string> = {
-  subscription: 'A service you chose and could drop: streaming, software, the gym.',
-  bill: 'What it costs to run your home and life: mortgage or rent, insurance, internet. Bills have their own tab and totals.',
+  subscription: 'Counted with your subscriptions. Pick “Bill” to move it to Bills, with their own tab and totals.',
+  bill: 'Counted with your bills. Pick “Subscription” to move it to Subscriptions.',
 };
 
 /** `standard` that are at most `max`, plus one already saved that isn't among them, in order. */
@@ -105,7 +106,10 @@ function reminderLabel(days: ReminderOption) {
   return days === 1 ? '1 day before' : `${days} days before`;
 }
 
-/** Adds a subscription or bill (of the `kind` asked for), or edits the one in `id`. */
+/**
+ * Adds a subscription or bill (of the `kind` asked for, from the tab it was added on), or edits the
+ * one in `id`, which can also move it to the other kind.
+ */
 export default function EditSubscriptionScreen() {
   const { id, kind } = useLocalSearchParams<{ id?: string; kind?: string }>();
   const existing = useSubscription(Number(id ?? 0));
@@ -253,13 +257,6 @@ function SubscriptionForm({ existing, initialKind }: { existing?: Subscription; 
   return (
     <FormScreen>
       <PageHeader title={`${existing ? 'Edit' : 'New'} ${isBill ? 'bill' : 'subscription'}`} />
-
-      <Field label="Type">
-        <ChipGroup options={KINDS} value={kind} onChange={changeKind} label={(k) => KIND_LABELS[k]} />
-        <ThemedText type="small" themeColor="textSecondary">
-          {KIND_HINTS[kind]}
-        </ThemedText>
-      </Field>
 
       <Field label="Name">
         <TextField
@@ -489,6 +486,15 @@ function SubscriptionForm({ existing, initialKind }: { existing?: Subscription; 
             {chargeWindowDays === 0
               ? 'For ones that charge around a day, not on it (the weekend after, say), pick how late it can be.'
               : `Set ${isTrial ? 'the trial end' : 'the first payment'} to the earliest day it charges. Each charge is shown as due up to ${formatChargeWindow(chargeWindowDays)} after that, and reminders come before the earliest day.`}
+          </ThemedText>
+        </Field>
+      )}
+
+      {existing && (
+        <Field label="Type">
+          <ChipGroup options={KINDS} value={kind} onChange={changeKind} label={(k) => KIND_LABELS[k]} />
+          <ThemedText type="small" themeColor="textSecondary">
+            {KIND_HINTS[kind]}
           </ThemedText>
         </Field>
       )}
