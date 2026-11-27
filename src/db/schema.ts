@@ -86,7 +86,7 @@ const MIGRATIONS: string[] = [
   // totals. Utilities (the phone plan, internet) were subscriptions until now and become bills.
   `
   ALTER TABLE subscriptions ADD COLUMN kind TEXT NOT NULL DEFAULT 'subscription' CHECK (kind IN ('subscription', 'bill'));
-  UPDATE subscriptions SET kind = 'bill' WHERE category IN ('utilities', 'housing');
+  UPDATE subscriptions SET kind = 'bill' WHERE category = 'utilities';
   `,
 ];
 
