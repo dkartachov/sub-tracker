@@ -6,6 +6,7 @@ import { NO_TAX } from '@/lib/tax';
 
 const gym: SubscriptionInput = {
   name: 'Gym',
+  kind: 'subscription',
   category: 'fitness',
   cycle: { count: 1, unit: 'month' },
   firstPaymentDate: '2026-01-01',

@@ -1,6 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 
 import { Radius, Spacing } from '@/constants/theme';
+import { KIND_WORDS, type Kind } from '@/constants/categories';
 import type { SubscriptionStatus } from '@/db/subscriptions';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -18,8 +19,8 @@ export function DueNowPill() {
   );
 }
 
-/** "Trial" or "Cancelled"; active subscriptions show nothing. */
-export function StatusPill({ status }: { status: SubscriptionStatus }) {
+/** "Trial", or "Cancelled" ("Ended" for a bill); active ones show nothing. */
+export function StatusPill({ status, kind = 'subscription' }: { status: SubscriptionStatus; kind?: Kind }) {
   const theme = useTheme();
   if (status === 'active') return null;
   const isTrial = status === 'trial';
@@ -27,7 +28,7 @@ export function StatusPill({ status }: { status: SubscriptionStatus }) {
   return (
     <View style={[styles.pill, { backgroundColor: isTrial ? theme.trialSoft : theme.backgroundSelected }]}>
       <ThemedText type="eyebrow" themeColor={isTrial ? 'trial' : 'textSecondary'} style={styles.text}>
-        {isTrial ? 'Trial' : 'Cancelled'}
+        {isTrial ? 'Trial' : KIND_WORDS[kind].cancelled}
       </ThemedText>
     </View>
   );

@@ -10,6 +10,13 @@ it('matches the start of any word, ignoring case', () => {
   expect(suggestTemplates('apple t').map((t) => t.name)).toEqual(['Apple TV+']);
 });
 
+it('suggests bills for a bill and subscriptions for a subscription', () => {
+  expect(suggestTemplates('', 'bill').map((t) => t.name)).toContain('Mortgage');
+  expect(suggestTemplates('', 'bill').map((t) => t.name)).not.toContain('Netflix');
+  expect(suggestTemplates('inter').map((t) => t.name)).toEqual([]);
+  expect(suggestTemplates('inter', 'bill').map((t) => t.name)).toEqual(['Internet']);
+});
+
 it('stops once a template has been picked or nothing matches', () => {
   expect(suggestTemplates('netflix')).toEqual([]);
   expect(suggestTemplates('my climbing club')).toEqual([]);

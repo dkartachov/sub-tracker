@@ -46,28 +46,49 @@ it('totals what is still running', () => {
   ]);
 });
 
-it('keeps housing out of the subscription totals, with its own', () => {
-  const mortgage = sub({ id: 5, name: 'Mortgage', category: 'housing', firstPaymentDate: '2026-01-01', prices: [{ amount: 200000, effectiveDate: '2026-01-01' }] });
-  const overview = getOverview([sub({ id: 1 }), mortgage], TODAY);
+it('keeps bills out of the subscription totals, with their own', () => {
+  const mortgage = sub({
+    id: 5,
+    name: 'Mortgage',
+    kind: 'bill',
+    category: 'housing',
+    firstPaymentDate: '2026-01-01',
+    prices: [{ amount: 200000, effectiveDate: '2026-01-01' }],
+  });
+  const internet = sub({ id: 6, name: 'Internet', kind: 'bill', category: 'utilities', firstPaymentDate: '2026-01-20', prices: [{ amount: 5000, effectiveDate: '2026-01-20' }] });
+  const overview = getOverview([sub({ id: 1 }), mortgage, internet], TODAY);
 
   expect(overview.monthly).toBe(1000);
   expect(overview.activeCount).toBe(1);
   expect(overview.spentThisYear).toBe(2000);
   expect(overview.byCategory).toEqual([{ category: 'streaming', monthly: 1000 }]);
-  expect(overview.housing).toEqual({
-    monthly: 200000,
-    yearly: 200000 * 12,
-    activeCount: 1,
+  expect(overview.bills).toEqual({
+    monthly: 205000,
+    yearly: 205000 * 12,
+    activeCount: 2,
     trialCount: 0,
-    // Jan 1, Feb 1 and Mar 1.
-    spentThisYear: 600000,
-    byCategory: [{ category: 'housing', monthly: 200000 }],
+    // The mortgage on Jan 1, Feb 1 and Mar 1, the internet on Jan 20 and Feb 20.
+    spentThisYear: 600000 + 10000,
+    byCategory: [
+      { category: 'housing', monthly: 200000 },
+      { category: 'utilities', monthly: 5000 },
+    ],
   });
-  // Upcoming charges are everything about to leave the account, housing included.
+  // Upcoming charges are everything about to leave the account, bills included.
   expect(overview.upcoming.map((c) => [c.sub.name, c.date])).toEqual([
     ['Netflix', '2026-03-10'],
+    ['Internet', '2026-03-20'],
     ['Mortgage', '2026-04-01'],
   ]);
+});
+
+it('goes by the kind, not the category', () => {
+  // A gym contract someone counts as a bill, and a phone plan they count as a subscription.
+  const gym = sub({ id: 1, name: 'Gym', kind: 'bill', category: 'fitness' });
+  const phone = sub({ id: 2, name: 'Phone', category: 'utilities' });
+  const overview = getOverview([gym, phone], TODAY);
+  expect(overview.byCategory).toEqual([{ category: 'utilities', monthly: 1000 }]);
+  expect(overview.bills.byCategory).toEqual([{ category: 'fitness', monthly: 1000 }]);
 });
 
 it('counts what was charged this year, cancelled subscriptions included', () => {

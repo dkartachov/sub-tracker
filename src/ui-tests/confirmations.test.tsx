@@ -63,6 +63,7 @@ const { router } = jest.requireMock('expo-router') as { router: { back: jest.Moc
 
 const netflix: SubscriptionInput = {
   name: 'Netflix',
+  kind: 'subscription',
   category: 'streaming',
   cycle: { count: 1, unit: 'month' },
   firstPaymentDate: '2026-01-15',

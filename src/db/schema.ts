@@ -82,6 +82,12 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE subscriptions ADD COLUMN renews_early_days INTEGER NOT NULL DEFAULT 0 CHECK (renews_early_days >= 0);
   `,
+  // Bills (mortgage, rent, insurance, internet) apart from subscriptions, with their own tab and
+  // totals. Utilities (the phone plan, internet) were subscriptions until now and become bills.
+  `
+  ALTER TABLE subscriptions ADD COLUMN kind TEXT NOT NULL DEFAULT 'subscription' CHECK (kind IN ('subscription', 'bill'));
+  UPDATE subscriptions SET kind = 'bill' WHERE category IN ('utilities', 'housing');
+  `,
 ];
 
 /** The `user_version` of a fully migrated database. */

@@ -1,5 +1,5 @@
-/** How the Subscriptions tab filters and orders its list. Pure, apart from the saved sort order. */
-import { CATEGORY_INFO } from '@/constants/categories';
+/** How the Subscriptions and Bills tabs filter and order their lists. Pure, apart from the saved sort order. */
+import { CATEGORY_INFO, type Kind } from '@/constants/categories';
 import { currentPrice, endsOn, expectedCharge, statusOf, type Subscription } from '@/db/subscriptions';
 
 import { cycleOn, firstPaymentDate, monthlyEquivalent, stoppedSince, type Cycle } from './billing';
@@ -14,6 +14,11 @@ export const SUBSCRIPTION_SORT_LABELS: Record<SubscriptionSort, string> = {
   cost: 'Cost per month',
   name: 'Name',
 };
+
+/** Those of one kind, for its tab. */
+export function ofKind(subs: Subscription[], kind: Kind) {
+  return subs.filter((sub) => sub.kind === kind);
+}
 
 const sortSetting = storedSetting<SubscriptionSort>('subscriptionSort', 'next', (stored) =>
   SUBSCRIPTION_SORTS.find((s) => s === stored) ?? null

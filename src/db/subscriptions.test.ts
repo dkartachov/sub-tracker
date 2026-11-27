@@ -25,6 +25,7 @@ import { NO_TAX } from '@/lib/tax';
 
 const netflix: SubscriptionInput = {
   name: 'Netflix',
+  kind: 'subscription',
   category: 'streaming',
   cycle: { count: 1, unit: 'month' },
   firstPaymentDate: '2026-01-15',
@@ -43,6 +44,21 @@ it('adds a subscription with its first price', async () => {
   const sub = await getSubscription(db, id);
   expect(sub).toMatchObject({ name: 'Netflix', periods: [{ start: '2026-01-15', cycle: { count: 1, unit: 'month' }, end: null }] });
   expect(sub?.prices).toEqual([{ amount: 999, effectiveDate: '2026-01-15' }]);
+});
+
+it('adds a bill ending on a set day, and changes its kind when edited', async () => {
+  const db = await createTestDb();
+  const mortgage: SubscriptionInput = { ...netflix, name: 'Mortgage', kind: 'bill', category: 'housing', firstPaymentDate: '2026-01-01' };
+  // The last payment on Dec 1, 2055, so it ends the day after.
+  const id = await createSubscription(db, mortgage, 200000, null, '2055-12-02');
+
+  const sub = (await getSubscription(db, id))!;
+  expect(sub.kind).toBe('bill');
+  expect(sub.periods).toEqual([{ start: '2026-01-01', cycle: { count: 1, unit: 'month' }, end: '2055-12-02' }]);
+  expect(endsOn(sub, '2026-11-27')).toBe('2055-12-02');
+
+  await updateSubscription(db, id, { ...mortgage, kind: 'subscription' });
+  expect((await getSubscription(db, id))!.kind).toBe('subscription');
 });
 
 it('keeps the price history, one change per day', async () => {

@@ -2,9 +2,9 @@
 
 import { DatabaseSync } from 'node:sqlite';
 
-it('moves each subscription billing into a period when migrating from version 1', async () => {
+/** A database from before billing periods (the first migration alone), with `rows` in it, migrated to the latest. */
+async function migratedFromVersion1(rows: string) {
   const sqlite = new DatabaseSync(':memory:');
-  // The first migration alone, as a database from before billing periods.
   const { migrateDbIfNeeded } = jest.requireActual<typeof import('./schema')>('./schema');
   const db = {
     execAsync: async (sql: string) => sqlite.exec(sql),
@@ -28,13 +28,19 @@ it('moves each subscription billing into a period when migrating from version 1'
       subscription_id INTEGER NOT NULL REFERENCES subscriptions (id) ON DELETE CASCADE,
       amount INTEGER NOT NULL CHECK (amount > 0), effective_date TEXT NOT NULL
     );
+    ${rows}
+    PRAGMA user_version = 1;
+  `);
+  await migrateDbIfNeeded(db as never);
+  return sqlite;
+}
+
+it('moves each subscription billing into a period when migrating from version 1', async () => {
+  const sqlite = await migratedFromVersion1(`
     INSERT INTO subscriptions (name, category, cycle_count, cycle_unit, first_payment_date, cancelled_on, created_at)
       VALUES ('Netflix', 'streaming', 1, 'month', '2026-01-15', '2026-05-15', ''), ('Gym', 'fitness', 3, 'month', '2025-10-01', NULL, '');
     INSERT INTO price_changes (subscription_id, amount, effective_date) VALUES (1, 999, '2026-01-15'), (2, 9000, '2025-10-01');
-    PRAGMA user_version = 1;
   `);
-
-  await migrateDbIfNeeded(db as never);
 
   expect(sqlite.prepare('SELECT subscription_id, start_date, cycle_count, cycle_unit, end_date FROM billing_periods ORDER BY subscription_id').all()).toEqual([
     { subscription_id: 1, start_date: '2026-01-15', cycle_count: 1, cycle_unit: 'month', end_date: '2026-05-15' },
@@ -44,6 +50,20 @@ it('moves each subscription billing into a period when migrating from version 1'
   expect(columns).not.toContain('first_payment_date');
   expect(columns).not.toContain('cancelled_on');
   expect(sqlite.prepare('SELECT COUNT(*) AS n FROM price_changes').get()).toEqual({ n: 2 });
+});
+
+it('makes utilities bills and everything else subscriptions when adding bills', async () => {
+  const sqlite = await migratedFromVersion1(`
+    INSERT INTO subscriptions (name, category, cycle_count, cycle_unit, first_payment_date, created_at)
+      VALUES ('Netflix', 'streaming', 1, 'month', '2026-01-15', ''), ('Internet', 'utilities', 1, 'month', '2026-01-03', ''),
+        ('Gym', 'other', 1, 'month', '2026-01-01', '');
+  `);
+  expect(sqlite.prepare('SELECT name, kind FROM subscriptions ORDER BY id').all()).toEqual([
+    { name: 'Netflix', kind: 'subscription' },
+    { name: 'Internet', kind: 'bill' },
+    { name: 'Gym', kind: 'subscription' },
+  ]);
+  expect(() => sqlite.exec("UPDATE subscriptions SET kind = 'chore'")).toThrow();
 });
 
 it('charges existing subscriptions on the day when adding charge windows', async () => {

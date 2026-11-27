@@ -14,7 +14,7 @@ import { ScrollView } from '@/components/scroll-view';
 import { InfoRow, Section } from '@/components/section';
 import { StatusPill } from '@/components/status-pill';
 import { ThemedText } from '@/components/themed-text';
-import { CATEGORY_INFO } from '@/constants/categories';
+import { CATEGORY_INFO, KIND_WORDS } from '@/constants/categories';
 import { Spacing } from '@/constants/theme';
 import {
   chargeDueNow,
@@ -96,6 +96,8 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const money = (minor: number) => formatMoney(minor, currency);
 
   const status = statusOf(sub, today);
+  const isBill = sub.kind === 'bill';
+  const words = KIND_WORDS[sub.kind];
   const next = expectedCharge(sub, today);
   const ends = endsOn(sub, today);
   // For one ending on a set day (a mortgage paid off then), the charges still to come before it.
@@ -128,7 +130,7 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
   const remove = () =>
     showDialog({
       title: `Delete ${sub.name}?`,
-      message: 'Its price history goes too, and it drops out of what you spent. To keep that, mark it cancelled instead.',
+      message: `Its price history goes too, and it drops out of what you spent. To keep that, ${isBill ? 'set an end date' : 'mark it cancelled'} instead.`,
       cancelLabel: 'Keep it',
       confirm: {
         label: 'Delete',
@@ -154,11 +156,11 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
     <>
       <View style={styles.hero}>
         <CategoryBadge category={sub.category} size={56} />
-        <StatusPill status={status} />
+        <StatusPill status={status} kind={sub.kind} />
       </View>
       <PageHeader
         title={sub.name}
-        eyebrow={CATEGORY_INFO[sub.category].label}
+        eyebrow={isBill ? `Bill · ${CATEGORY_INFO[sub.category].label}` : CATEGORY_INFO[sub.category].label}
         eyebrowColor="textSecondary"
         subtitle={`${money(price)} per ${formatCycle(cycle)}`}
       />
@@ -166,7 +168,7 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
       <TrialNotice sub={sub} today={today} />
 
       <Section
-        title="Billing"
+        title={isBill ? 'Payments' : 'Billing'}
         action={
           canChangePlan && (
             <PressableScale accessibilityRole="button" hitSlop={8} onPress={() => startPlan('change')}>
@@ -178,7 +180,7 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
         }>
         {next && (
           <InfoRow
-            label={status === 'trial' ? 'Trial ends' : status === 'cancelled' ? 'Resumes' : dueNow ? 'Due now' : 'Next charge'}
+            label={status === 'trial' ? 'Trial ends' : status === 'cancelled' ? 'Resumes' : dueNow ? 'Due now' : words.next}
             value={
               status === 'trial'
                 ? dueDay(next.date, next.date, today)
@@ -190,7 +192,7 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
           <>
             <Button title="Mark as paid" variant="secondary" onPress={markPaid} />
             <ThemedText type="small" themeColor="textSecondary">
-              Already charged? Marking it paid stops it showing as due. Totals count it either way.
+              {isBill ? 'Already paid?' : 'Already charged?'} Marking it paid stops it showing as due. Totals count it either way.
             </ThemedText>
           </>
         )}
@@ -202,10 +204,10 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
             value={`${left.length} · last ${formatDateKey(left[left.length - 1])}`}
           />
         )}
-        {stopped && <InfoRow label="Cancelled" value={formatDateKey(stopped)} />}
-        <InfoRow label="Billed" value={formatCycleAdverb(cycle)} />
+        {stopped && <InfoRow label={words.cancelled} value={formatDateKey(stopped)} />}
+        <InfoRow label={isBill ? 'Paid' : 'Billed'} value={formatCycleAdverb(cycle)} />
         {sub.renewsEarlyDays > 0 && <InfoRow label="Renews" value={formatRenewsEarly(sub.renewsEarlyDays)} />}
-        {chargeWindow > 0 && <InfoRow label="Charge day" value={`Up to ${formatChargeWindow(chargeWindow)} late`} />}
+        {chargeWindow > 0 && <InfoRow label={isBill ? 'Payment day' : 'Charge day'} value={`Up to ${formatChargeWindow(chargeWindow)} late`} />}
         {sub.tax.rate > 0 && (
           <InfoRow
             label={sub.tax.included ? 'Tax included' : 'Tax added'}
@@ -289,11 +291,11 @@ function SubscriptionDetails({ sub }: { sub: Subscription }) {
         />
         {cancelledOn ? (
           <>
-            <Button title="Resume" variant="secondary" onPress={resume} />
-            <Button title="Change cancellation" variant="secondary" onPress={editCancellation} />
+            <Button title={isBill ? 'Restart' : 'Resume'} variant="secondary" onPress={resume} />
+            <Button title={isBill ? 'Change end date' : 'Change cancellation'} variant="secondary" onPress={editCancellation} />
           </>
         ) : (
-          <Button title="Mark cancelled" variant="secondary" onPress={editCancellation} />
+          <Button title={isBill ? 'Set end date' : 'Mark cancelled'} variant="secondary" onPress={editCancellation} />
         )}
         <Button title="Delete" variant="destructive" onPress={remove} />
       </View>
@@ -363,7 +365,7 @@ function ChargeHistory({ sub, today }: { sub: Subscription; today: DateKey }) {
 
   return (
     <Section
-      title={`Charges · ${charges.length}`}
+      title={`${sub.kind === 'bill' ? 'Payments' : 'Charges'} · ${charges.length}`}
       action={
         charges.length > CHARGES_SHOWN && (
           <PressableScale accessibilityRole="button" hitSlop={8} onPress={() => setShowAll((all) => !all)}>
@@ -402,7 +404,7 @@ function BillingHistory({ sub, today }: { sub: Subscription; today: DateKey }) {
     const from = `${period.start > today ? 'From' : 'Since'} ${formatDateKey(period.start)}`;
     if (next && period.end === next.start) return `${from}, until the plan changed`;
     if (period.end === null) return from;
-    const ended = `${from}, cancelled ${formatDateKey(period.end)}`;
+    const ended = `${from}, ${sub.kind === 'bill' ? 'ended' : 'cancelled'} ${formatDateKey(period.end)}`;
     return next ? `${ended}, resumed ${formatDateKey(next.start)}` : ended;
   };
 

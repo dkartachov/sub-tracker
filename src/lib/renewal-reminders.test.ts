@@ -46,6 +46,13 @@ it('warns before a trial converts', () => {
   expect(second.title).toBe('Netflix renews in 2 days');
 });
 
+it('says a bill is due rather than renewing', () => {
+  const [first] = planReminders([sub({ name: 'Mortgage', kind: 'bill', category: 'housing' })], NOW, 'EUR');
+  expect(first.title).toBe('Mortgage is due in 2 days');
+  const [asSubscription] = planReminders([sub({ name: 'Mortgage', category: 'housing' })], NOW, 'EUR');
+  expect(first.identifier).not.toBe(asSubscription.identifier);
+});
+
 it('skips subscriptions with reminders off or cancelled', () => {
   expect(planReminders([sub({ reminderDaysBefore: null }), sub({ cancelledOn: '2026-03-01' })], NOW, 'EUR')).toEqual([]);
 });

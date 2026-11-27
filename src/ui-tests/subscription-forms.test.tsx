@@ -12,9 +12,9 @@ import EditSubscriptionScreen from '@/app/subscription/edit';
 import PriceChangeScreen from '@/app/subscription/price-change';
 import PlanScreen from '@/app/subscription/plan';
 import { addPriceChange, createSubscription, getSubscriptions, setCancelled, type SubscriptionInput } from '@/db/subscriptions';
-import { finalEnd } from '@/lib/billing';
+import { finalEnd, paidPeriodEnd, withoutFinalEnd } from '@/lib/billing';
 import { setCurrency } from '@/lib/currency';
-import { addDays, todayKey } from '@/lib/dates';
+import { addDays, addMonthsClamped, todayKey } from '@/lib/dates';
 import { createTestDb } from '@/test-utils/sqlite';
 import { NO_TAX } from '@/lib/tax';
 import { taxRegionSetting } from '@/lib/tax-setting';
@@ -47,6 +47,7 @@ const { router } = jest.requireMock('expo-router') as { router: { back: jest.Moc
 
 const netflix: SubscriptionInput = {
   name: 'Netflix',
+  kind: 'subscription',
   category: 'streaming',
   cycle: { count: 1, unit: 'month' },
   firstPaymentDate: '2026-01-15',
@@ -84,6 +85,57 @@ it('adds a subscription from a suggestion, with a typed price', async () => {
   const [sub] = await getSubscriptions(mockDb);
   expect(sub).toMatchObject({ name: 'Spotify', category: 'music', periods: [{ cycle: { count: 1, unit: 'month' } }] });
   expect(sub.prices.map((p) => p.amount)).toEqual([1099]);
+});
+
+it('adds a bill from a suggestion, ending after a last payment, with no trial or intro price', async () => {
+  mockParams = { kind: 'bill' };
+  await renderScreen(<EditSubscriptionScreen />);
+
+  expect(screen.getByText('New bill')).toBeTruthy();
+  expect(screen.queryByText('Free trial')).toBeNull();
+  expect(screen.queryByText('Discounted first payment')).toBeNull();
+  await fireEvent.changeText(screen.getByPlaceholderText('Mortgage, internet…'), 'mort');
+  await fireEvent.press(screen.getByText('Mortgage'));
+  await fireEvent.changeText(screen.getByPlaceholderText('12.99'), '2000');
+  await fireEvent(screen.getByLabelText('Ends on a set day'), 'valueChange', true);
+  expect(screen.getByText(/^\d+ payments, the last on /)).toBeTruthy();
+  await fireEvent.press(screen.getByText('Add bill'));
+
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  const [sub] = await getSubscriptions(mockDb);
+  expect(sub).toMatchObject({ name: 'Mortgage', kind: 'bill', category: 'housing', isTrial: false });
+  // The last payment starts 25 years out; it ends the day after.
+  expect(finalEnd(sub)).toBe(addDays(addMonthsClamped(todayKey(), 12 * 25), 1));
+});
+
+it('switches between subscription and bill, with the categories of each', async () => {
+  await renderScreen(<EditSubscriptionScreen />);
+  await fireEvent.changeText(screen.getByPlaceholderText('Netflix, climbing gym…'), 'Internet');
+  await fireEvent.changeText(screen.getByPlaceholderText('12.99'), '45');
+  expect(screen.queryByText('Housing')).toBeNull();
+
+  await fireEvent.press(screen.getByText('Bill'));
+  expect(screen.getByText('Housing')).toBeTruthy();
+  expect(screen.queryByText('Streaming')).toBeNull();
+  await fireEvent.press(screen.getByText('Utilities'));
+  await fireEvent.press(screen.getByText('Add bill'));
+
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  expect((await getSubscriptions(mockDb))[0]).toMatchObject({ kind: 'bill', category: 'utilities' });
+});
+
+it('ends a bill after its next payment by default', async () => {
+  const id = await createSubscription(mockDb, { ...netflix, name: 'Rent', kind: 'bill', category: 'housing' }, 150000);
+  mockParams = { id: String(id) };
+  await renderScreen(<CancelScreen />);
+
+  expect(await screen.findByText('End Rent')).toBeTruthy();
+  await fireEvent.press(screen.getByText('Set end date'));
+
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+  const [sub] = await getSubscriptions(mockDb);
+  // The last payment is the next one, so it ends the day after it.
+  expect(finalEnd(sub)).toBe(addDays(paidPeriodEnd(withoutFinalEnd(sub), todayKey()), 1));
 });
 
 it("won't add one without a name and price", async () => {

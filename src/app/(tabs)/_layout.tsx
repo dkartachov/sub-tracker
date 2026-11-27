@@ -2,7 +2,7 @@ import { NativeTabs } from 'expo-router/native-tabs';
 
 import { useTheme } from '@/hooks/use-theme';
 
-/** Tab order is Overview | Subscriptions | Settings. Overview is the `index` route, so the app opens on it. */
+/** Tab order is Overview | Subscriptions | Bills | Settings. Overview is the `index` route, so the app opens on it. */
 export default function TabLayout() {
   const theme = useTheme();
 
@@ -22,6 +22,11 @@ export default function TabLayout() {
       <NativeTabs.Trigger name="subscriptions">
         <NativeTabs.Trigger.Label>Subscriptions</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="list.bullet.rectangle.fill" md="receipt_long" />
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="bills">
+        <NativeTabs.Trigger.Label>Bills</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="house.fill" md="home" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="settings">

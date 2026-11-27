@@ -5,7 +5,7 @@
  *
  * The CSV export is one row per subscription, for spreadsheets. It can't be restored from.
  */
-import { CATEGORIES, CATEGORY_INFO, type Category } from '@/constants/categories';
+import { CATEGORIES, CATEGORY_INFO, KINDS, kindOfCategory, type Category, type Kind } from '@/constants/categories';
 import { nextCharge, statusOf, type Subscription } from '@/db/subscriptions';
 
 import {
@@ -30,9 +30,10 @@ import { NO_TAX, TAX_RATE_SCALE, type Tax } from './tax';
  * had one billing cycle per subscription (`firstPaymentDate`, `cycle`, `cancelledOn`) where
  * version 2 has `periods`. Version 3 adds `chargeWindowDays`, 0 for older ones. Version 4 adds
  * `tax`, none for older ones. Version 5 adds `paidCharges`, none for older ones. Version 6 adds
- * `renewsEarlyDays`, 0 for older ones. All six restore.
+ * `renewsEarlyDays`, 0 for older ones. Version 7 adds `kind`: older ones are bills by their
+ * category (utilities), like the migration that added it. All seven restore.
  */
-export const BACKUP_VERSION = 6;
+export const BACKUP_VERSION = 7;
 
 const BACKUP_APP = 'subtracker';
 
@@ -129,11 +130,12 @@ function parseTax(tax: unknown, label: string): Tax {
 function parseSubscription(value: unknown, index: number, version: number): BackupSubscription {
   const where = `Subscription ${index + 1}`;
   if (!isObject(value)) fail(`${where} is unreadable.`);
-  const { name, category, isTrial, reminderDaysBefore, chargeWindowDays, renewsEarlyDays, tax, notes, prices, paidCharges } = value;
+  const { name, kind, category, isTrial, reminderDaysBefore, chargeWindowDays, renewsEarlyDays, tax, notes, prices, paidCharges } = value;
 
   if (typeof name !== 'string' || name.trim() === '') fail(`${where} has no name.`);
   const label = `“${name}”`;
   if (!CATEGORIES.includes(category as Category)) fail(`${label} has an unknown category.`);
+  if (version >= 7 && !KINDS.includes(kind as Kind)) fail(`${label} isn't a subscription or a bill.`);
   const periods: BillingPeriod[] =
     version === 1
       ? [
@@ -177,6 +179,7 @@ function parseSubscription(value: unknown, index: number, version: number): Back
 
   return {
     name: name.trim(),
+    kind: version >= 7 ? (kind as Kind) : kindOfCategory(category as Category),
     category: category as Category,
     isTrial,
     periods,
@@ -200,7 +203,7 @@ export function parseBackup(text: string): Backup {
   }
   if (!isObject(data) || data.app !== BACKUP_APP) fail("This isn't a Subtracker backup.");
   const { version } = data;
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== BACKUP_VERSION) fail('This backup is from a newer version of Subtracker. Update the app, then try again.');
   if (!CURRENCIES.includes(data.currency as Currency)) fail('This backup has an unknown currency.');
   if (!Array.isArray(data.subscriptions)) fail('This backup has no subscriptions list.');
 
@@ -228,6 +231,7 @@ function csvAmount(minor: number) {
 export function subscriptionsCsv(subs: Subscription[], currency: Currency, today: DateKey): string {
   const header = [
     'Name',
+    'Type',
     'Category',
     'Status',
     `Price (${currency})`,
@@ -247,6 +251,7 @@ export function subscriptionsCsv(subs: Subscription[], currency: Currency, today
     const cycle = next?.cycle ?? cycleOn(sub, today);
     return [
       sub.name,
+      sub.kind,
       CATEGORY_INFO[sub.category].label,
       statusOf(sub, today),
       csvAmount(price),

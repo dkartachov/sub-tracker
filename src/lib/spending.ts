@@ -1,11 +1,11 @@
 /**
  * The numbers on the Overview tab, from the subscriptions alone.
  *
- * Housing (rent, a mortgage) is kept apart: the totals, the categories and the chart are for
- * subscriptions, and housing gets its own totals in `housing`. Upcoming charges list both, since
- * that's what's about to leave the account.
+ * Bills (mortgage, insurance, internet) are kept apart: the totals, the categories and the chart
+ * are for subscriptions, and bills get their own totals in `bills`. Upcoming charges list both,
+ * since that's what's about to leave the account.
  */
-import { HOUSING, type Category } from '@/constants/categories';
+import type { Category } from '@/constants/categories';
 import { nextCharge, spentSoFar, statusOf, trialWontConvert, type Subscription } from '@/db/subscriptions';
 
 import {
@@ -38,10 +38,10 @@ export type Totals = {
   byCategory: { category: Category; monthly: number }[];
 };
 
-/** The subscription totals, without housing, which has its own. */
+/** The subscription totals, without bills, which have their own. */
 export type Overview = Totals & {
-  /** Rent, mortgage and the like, kept out of the subscription totals. */
-  housing: Totals;
+  /** Mortgage, insurance, internet and other bills, kept out of the subscription totals. */
+  bills: Totals;
   /**
    * Charges in the next `UPCOMING_DAYS`, soonest first, and ones due in the last few days that may
    * still land (see `chargeWindowDays`).
@@ -61,9 +61,9 @@ export const TRIAL_WARNING_DAYS = 14;
 /** Trials that converted within this many days are called out too, in case it went unnoticed. */
 export const RECENTLY_CONVERTED_DAYS = 7;
 
-/** Housing (rent, a mortgage), which the Overview keeps apart from the subscription totals. */
-export function isHousing(sub: Pick<Subscription, 'category'>) {
-  return sub.category === HOUSING;
+/** A bill, which the Overview keeps apart from the subscription totals. */
+export function isBill(sub: Pick<Subscription, 'kind'>) {
+  return sub.kind === 'bill';
 }
 
 export function getOverview(subs: Subscription[], today: DateKey): Overview {
@@ -96,8 +96,8 @@ export function getOverview(subs: Subscription[], today: DateKey): Overview {
     .sort((a, b) => b.date.localeCompare(a.date));
 
   return {
-    ...totals(subs.filter((sub) => !isHousing(sub)), today),
-    housing: totals(subs.filter(isHousing), today),
+    ...totals(subs.filter((sub) => !isBill(sub)), today),
+    bills: totals(subs.filter(isBill), today),
     upcoming,
     trialsEnding,
     recentlyConverted,
@@ -150,7 +150,7 @@ export type MonthSpending = {
 
 /**
  * What was charged in each of the last `months` calendar months, this one last and in full. Pass
- * the subscriptions without housing for the Overview's chart.
+ * the subscriptions without bills for the Overview's chart.
  */
 export function monthlySpending(subs: Subscription[], today: DateKey, months = 12): MonthSpending[] {
   const thisMonth = `${today.slice(0, 7)}-01`;

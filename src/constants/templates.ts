@@ -1,9 +1,10 @@
 import type { CycleUnit } from '@/lib/billing';
 
-import type { Category } from './categories';
+import { kindOfCategory, type Category, type Kind } from './categories';
 
 /**
- * Common subscriptions, offered while typing a name, to fill in the category and billing cycle.
+ * Common subscriptions and bills, offered while typing a name, to fill in the category and billing
+ * cycle. Each is a bill or a subscription by its category (see `kindOfCategory`).
  * No prices: they differ by country and plan, so the price is always typed in.
  */
 export type SubscriptionTemplate = { name: string; category: Category; cycle: { count: number; unit: CycleUnit } };
@@ -38,12 +39,20 @@ export const TEMPLATES: SubscriptionTemplate[] = [
   { name: 'Claude Max', category: 'development', cycle: monthly },
   { name: 'Cursor', category: 'development', cycle: monthly },
   { name: 'JetBrains All Products Pack', category: 'development', cycle: yearly },
-  { name: 'Phone plan', category: 'utilities', cycle: monthly },
-  { name: 'Internet', category: 'utilities', cycle: monthly },
+  // Bills.
   { name: 'Mortgage', category: 'housing', cycle: monthly },
   { name: 'Rent', category: 'housing', cycle: monthly },
-  { name: 'Home insurance', category: 'housing', cycle: yearly },
-  { name: 'Property tax', category: 'housing', cycle: yearly },
+  { name: 'Internet', category: 'utilities', cycle: monthly },
+  { name: 'Phone plan', category: 'utilities', cycle: monthly },
+  { name: 'Electricity', category: 'utilities', cycle: monthly },
+  { name: 'Home insurance', category: 'insurance', cycle: yearly },
+  { name: 'Car insurance', category: 'insurance', cycle: monthly },
+  { name: 'Health insurance', category: 'insurance', cycle: monthly },
+  { name: 'Car loan', category: 'loans', cycle: monthly },
+  { name: 'Student loan', category: 'loans', cycle: monthly },
+  { name: 'Property tax', category: 'taxes', cycle: yearly },
+  { name: 'Water', category: 'utilities', cycle: monthly },
+  { name: 'Gas', category: 'utilities', cycle: monthly },
   { name: 'HOA fees', category: 'housing', cycle: monthly },
 ];
 
@@ -54,11 +63,12 @@ const SHOWN = 6;
  * Templates for what's been typed: the popular ones while it's empty, else those with a word
  * starting with it. None once the name is exactly a template's, since it's been picked.
  */
-export function suggestTemplates(typed: string): SubscriptionTemplate[] {
+export function suggestTemplates(typed: string, kind: Kind = 'subscription'): SubscriptionTemplate[] {
+  const templates = TEMPLATES.filter((t) => kindOfCategory(t.category) === kind);
   const query = typed.trim().toLowerCase();
-  if (query === '') return TEMPLATES.slice(0, SHOWN);
-  if (TEMPLATES.some((t) => t.name.toLowerCase() === query)) return [];
-  return TEMPLATES.filter((t) => {
+  if (query === '') return templates.slice(0, SHOWN);
+  if (templates.some((t) => t.name.toLowerCase() === query)) return [];
+  return templates.filter((t) => {
     const name = t.name.toLowerCase();
     return name.startsWith(query) || name.split(' ').some((word) => word.startsWith(query));
   }).slice(0, SHOWN);

@@ -38,7 +38,7 @@ export function SubscriptionRow({ sub, today, detail, amount, amountDetail, dueN
           <ThemedText type="smallBold" numberOfLines={1} style={styles.name}>
             {sub.name}
           </ThemedText>
-          <StatusPill status={status} />
+          <StatusPill status={status} kind={sub.kind} />
           {dueNow && <DueNowPill />}
         </View>
         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>

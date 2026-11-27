@@ -18,6 +18,7 @@ import {
   firstPaymentDate,
   lastPeriod,
   paidPeriodEnd,
+  paymentsLeft,
   renewedCycleStart,
   withoutFinalEnd,
 } from '@/lib/billing';
@@ -25,11 +26,11 @@ import { formatMoney, useCurrency } from '@/lib/currency';
 import { addDays, formatDateKey, formatShortDate, fromDateKey, type DateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
 
-/** Marks the subscription in `id` cancelled from a chosen day, or changes that day. */
+/** Marks the subscription in `id` cancelled from a chosen day, or a bill ended, or changes that day. */
 export default function CancelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const sub = useSubscription(Number(id));
-  return sub ? <CancelForm sub={sub} /> : null;
+  return sub ? (sub.kind === 'bill' ? <EndBillForm sub={sub} /> : <CancelForm sub={sub} />) : null;
 }
 
 type When = 'today' | 'periodEnd' | 'other';
@@ -129,6 +130,88 @@ function CancelForm({ sub }: { sub: Subscription }) {
       <ThemedText>{effect}</ThemedText>
 
       <Button title={cancelledOn ? 'Save' : 'Mark cancelled'} onPress={save} disabled={!valid} loading={saving} />
+    </FormScreen>
+  );
+}
+
+type BillEnd = 'last' | 'now';
+
+/**
+ * When a bill ends: after its last payment (a mortgage paid off, a lease's last month), or with no
+ * more payments from today (switched internet provider). Stored like a cancellation, on the day
+ * after the last payment.
+ */
+function EndBillForm({ sub }: { sub: Subscription }) {
+  const db = useSQLiteContext();
+  const currency = useCurrency();
+  const today = useToday();
+
+  const endedOn = finalEnd(sub);
+  const running = withoutFinalEnd(sub);
+  // After a resume or plan change, the end has to come after that period's first payment.
+  const earliestEnd = sub.periods.length > 1 ? addDays(lastPeriod(sub).start, 1) : null;
+  const [when, setWhen] = useState<BillEnd>(endedOn === today ? 'now' : 'last');
+  // The last payment is the day before it ends. A new end starts from the next payment.
+  const [lastPayment, setLastPayment] = useState<DateKey>(endedOn ? addDays(endedOn, -1) : paidPeriodEnd(sub, today));
+  const [saving, setSaving] = useState(false);
+
+  const chosen = when === 'now' ? today : addDays(lastPayment, 1);
+  const valid = earliestEnd === null || chosen >= earliestEnd;
+  const left = paymentsLeft(running, today, chosen);
+  const paidToday = chargesOn(sub, today);
+
+  const save = async () => {
+    if (!valid) return;
+    setSaving(true);
+    try {
+      await setCancelled(db, sub.id, chosen);
+      haptic.success();
+      router.back();
+    } catch (error) {
+      console.error(error);
+      setSaving(false);
+    }
+  };
+
+  const effect = !valid
+    ? `Pick a day on or after ${formatDateKey(lastPeriod(sub).start)}, when it last started.`
+    : when === 'now'
+      ? paidToday
+        ? `Today's ${formatMoney(chargedOn(sub, today), currency)} payment won't be counted either. If it's been paid, pick “After a last payment” and today's date.`
+        : `No payments are counted from today on. Payments before it stay in what you've spent.`
+      : left.length === 0
+        ? `No payments are counted after ${formatDateKey(lastPayment)}. Payments before it stay in what you've spent.`
+        : `${left.length === 1 ? 'One payment is' : `${left.length} payments are`} left, the last on ${formatDateKey(left[left.length - 1])}. None are counted after it.`;
+
+  return (
+    <FormScreen>
+      <PageHeader
+        title={endedOn ? 'Change end date' : `End ${sub.name}`}
+        subtitle="A mortgage or loan paid off, a lease that ends, a provider you've left. You can restart it later."
+      />
+
+      <Field label="Payments stop">
+        <ChipGroup
+          options={['last', 'now'] as const}
+          value={when}
+          onChange={setWhen}
+          label={(option) => (option === 'last' ? 'After a last payment' : 'From today')}
+        />
+        {when === 'last' && (
+          <Field label="Last payment">
+            <DateField
+              value={lastPayment}
+              onChange={setLastPayment}
+              defaultDate={fromDateKey(lastPayment)}
+              minimumDate={earliestEnd ? fromDateKey(addDays(earliestEnd, -1)) : undefined}
+            />
+          </Field>
+        )}
+      </Field>
+
+      <ThemedText>{effect}</ThemedText>
+
+      <Button title={endedOn ? 'Save' : 'Set end date'} onPress={save} disabled={!valid} loading={saving} />
     </FormScreen>
   );
 }

@@ -13,7 +13,7 @@ import { FormScreen } from '@/components/form-screen';
 import { PageHeader } from '@/components/page-header';
 import { ScrollView } from '@/components/scroll-view';
 import { ThemedText } from '@/components/themed-text';
-import { CATEGORIES, CATEGORY_INFO, type Category } from '@/constants/categories';
+import { CATEGORY_INFO, KIND_CATEGORIES, KINDS, toKind, type Category, type Kind } from '@/constants/categories';
 import { suggestTemplates, type SubscriptionTemplate } from '@/constants/templates';
 import { Spacing } from '@/constants/theme';
 import {
@@ -34,11 +34,12 @@ import {
   maxChargeWindowDays,
   maxRenewsEarlyDays,
   paymentDate,
+  paymentsBetween,
   type Cycle,
   type CycleUnit,
 } from '@/lib/billing';
 import { currencyDecimals, formatMoney, moneyPlaceholder, parseMoney, useCurrency, type Currency } from '@/lib/currency';
-import { formatDateKey, todayKey } from '@/lib/dates';
+import { addDays, addMonthsClamped, formatDateKey, fromDateKey, todayKey, type DateKey } from '@/lib/dates';
 import { haptic } from '@/lib/haptics';
 import { requestNotificationPermission } from '@/lib/renewal-reminders';
 import { parseTaxRate, priceFieldLabel, taxOn, taxRateInputText, withTax, type Tax } from '@/lib/tax';
@@ -57,6 +58,13 @@ const RENEWS_EARLY_OPTIONS = [0, 7, 14, 30, 60];
 
 /** Renewing early is offered from cycles this many days ahead fit in (two months and up), or once it's been set. */
 const RENEWS_EARLY_SHOWN_FROM = 30;
+
+const KIND_LABELS: Record<Kind, string> = { subscription: 'Subscription', bill: 'Bill' };
+
+const KIND_HINTS: Record<Kind, string> = {
+  subscription: 'A service you chose and could drop: streaming, software, the gym.',
+  bill: 'What it costs to run your home and life: mortgage or rent, insurance, internet. Bills have their own tab and totals.',
+};
 
 /** `standard` that are at most `max`, plus one already saved that isn't among them, in order. */
 function dayOptions(standard: number[], saved: number, max: number) {
@@ -97,20 +105,21 @@ function reminderLabel(days: ReminderOption) {
   return days === 1 ? '1 day before' : `${days} days before`;
 }
 
-/** Adds a subscription, or edits the one in `id`. */
+/** Adds a subscription or bill (of the `kind` asked for), or edits the one in `id`. */
 export default function EditSubscriptionScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, kind } = useLocalSearchParams<{ id?: string; kind?: string }>();
   const existing = useSubscription(Number(id ?? 0));
 
-  if (id === undefined) return <SubscriptionForm />;
-  return existing ? <SubscriptionForm existing={existing} /> : null;
+  if (id === undefined) return <SubscriptionForm initialKind={toKind(kind ?? '')} />;
+  return existing ? <SubscriptionForm existing={existing} initialKind={existing.kind} /> : null;
 }
 
-function SubscriptionForm({ existing }: { existing?: Subscription }) {
+function SubscriptionForm({ existing, initialKind }: { existing?: Subscription; initialKind: Kind }) {
   const db = useSQLiteContext();
   const theme = useTheme();
   const currency = useCurrency();
 
+  const [kind, setKind] = useState<Kind>(initialKind);
   const [name, setName] = useState(existing?.name ?? '');
   const [priceText, setPriceText] = useState('');
   // With several billing periods (after a resume or plan change), the form edits the first one's
@@ -119,8 +128,8 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const [cycleCountText, setCycleCountText] = useState(String(existingCycle?.count ?? 1));
   const [cycleUnit, setCycleUnit] = useState<CycleUnit>(existingCycle?.unit ?? 'month');
   const [firstPaymentDate, setFirstPaymentDate] = useState(existing ? firstPaymentOf(existing) : todayKey());
-  const [isTrial, setIsTrial] = useState(existing?.isTrial ?? false);
-  const [category, setCategory] = useState<Category>(existing?.category ?? 'streaming');
+  const [trialSwitch, setTrialSwitch] = useState(existing?.isTrial ?? false);
+  const [category, setCategory] = useState<Category>(existing?.category ?? KIND_CATEGORIES[initialKind][0]);
   const [reminder, setReminder] = useState<ReminderOption>(
     existing ? ((existing.reminderDaysBefore ?? -1) as ReminderOption) : DEFAULT_REMINDER_DAYS
   );
@@ -128,8 +137,12 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const [renewsEarly, setRenewsEarly] = useState(existing?.renewsEarlyDays ?? 0);
   const [notes, setNotes] = useState(existing?.notes ?? '');
   // Adding only: a discounted first payment, after which the regular price applies.
-  const [hasIntroPrice, setHasIntroPrice] = useState(false);
+  const [introSwitch, setIntroSwitch] = useState(false);
   const [introPriceText, setIntroPriceText] = useState('');
+  // Adding a bill only: the last payment, for one that ends on a known day (a mortgage's payoff).
+  // After that, the end changes through "Set end date".
+  const [hasLastPayment, setHasLastPayment] = useState(false);
+  const [lastPaymentDate, setLastPaymentDate] = useState<DateKey>(() => addMonthsClamped(todayKey(), 12 * 25));
   const [saving, setSaving] = useState(false);
   // New ones start from the Settings region; each keeps its own rate after that.
   const { region, tax: defaultTax } = useDefaultTax();
@@ -137,8 +150,12 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   const [taxRateText, setTaxRateText] = useState(initialTax.rate === 0 ? '' : taxRateInputText(initialTax.rate));
   const [taxIncluded, setTaxIncluded] = useState(initialTax.included);
 
+  const isBill = kind === 'bill';
+  // Bills have no free trials, intro prices or early renewals.
+  const isTrial = !isBill && trialSwitch;
+  const hasIntroPrice = !isBill && !existing && introSwitch;
   const price = parseMoney(priceText, currency);
-  const introPrice = !existing && hasIntroPrice ? parseMoney(introPriceText, currency) : null;
+  const introPrice = hasIntroPrice ? parseMoney(introPriceText, currency) : null;
   const taxRate = taxRateText.trim() === '' ? 0 : parseTaxRate(taxRateText);
   const tax: Tax = { rate: taxRate ?? 0, included: taxIncluded };
   // Editing, the price is the current one from the price history.
@@ -148,19 +165,23 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
   // The first period has to keep at least its first charge before the next one takes over.
   const firstPeriodEnd = multiplePeriods ? existing!.periods[0].end : null;
   const firstPaymentValid = firstPeriodEnd === null || firstPaymentDate < firstPeriodEnd;
-  const introPriceValid = existing !== undefined || !hasIntroPrice || introPrice !== null;
+  const introPriceValid = !hasIntroPrice || introPrice !== null;
+  const endsOnSetDay = isBill && !existing && hasLastPayment;
+  const lastPaymentValid = !endsOnSetDay || lastPaymentDate >= firstPaymentDate;
   const valid =
     name.trim() !== '' &&
     cycle !== null &&
     firstPaymentValid &&
     taxRate !== null &&
     (existing !== undefined || price !== null) &&
-    introPriceValid;
-  const suggestions = existing ? [] : suggestTemplates(name);
+    introPriceValid &&
+    lastPaymentValid;
+  const suggestions = existing ? [] : suggestTemplates(name, kind);
   const savedRenewsEarly = existing?.renewsEarlyDays ?? 0;
   const renewsEarlyMax = cycle ? maxRenewsEarlyDays(cycle) : 0;
   const renewsEarlyOptions = dayOptions(RENEWS_EARLY_OPTIONS, savedRenewsEarly, renewsEarlyMax);
-  const showRenewsEarly = renewsEarlyOptions.length > 1 && (renewsEarlyMax >= RENEWS_EARLY_SHOWN_FROM || savedRenewsEarly > 0);
+  const showRenewsEarly =
+    !isBill && renewsEarlyOptions.length > 1 && (renewsEarlyMax >= RENEWS_EARLY_SHOWN_FROM || savedRenewsEarly > 0);
   // One left too early for a shorter cycle renews on the day.
   const renewsEarlyDays = showRenewsEarly && renewsEarlyOptions.includes(renewsEarly) ? renewsEarly : 0;
   const windowOptions = chargeWindowOptions(cycle, existing?.chargeWindowDays ?? 0, renewsEarlyDays);
@@ -180,6 +201,18 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
           currency
         )} from ${formatDateKey(paymentDate({ start: firstPaymentDate, cycle }, 1, renewsEarlyDays))}.`
       : null;
+  // How many payments a bill ending on a set day makes, and the real last one: the last payment
+  // day on or before the one picked.
+  const payments =
+    endsOnSetDay && cycle && lastPaymentValid
+      ? paymentsBetween({ periods: [{ start: firstPaymentDate, cycle, end: null }] }, firstPaymentDate, lastPaymentDate)
+      : [];
+
+  const changeKind = (next: Kind) => {
+    setKind(next);
+    // Each kind has its own categories; "Other" is in both.
+    if (!KIND_CATEGORIES[next].includes(category)) setCategory(KIND_CATEGORIES[next][0]);
+  };
 
   const applyTemplate = (template: SubscriptionTemplate) => {
     setName(template.name);
@@ -193,6 +226,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
     setSaving(true);
     const input: SubscriptionInput = {
       name: name.trim(),
+      kind,
       category,
       cycle,
       firstPaymentDate,
@@ -205,7 +239,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
     };
     try {
       if (existing) await updateSubscription(db, existing.id, input);
-      else await createSubscription(db, input, price!, introPrice);
+      else await createSubscription(db, input, price!, introPrice, endsOnSetDay ? addDays(lastPaymentDate, 1) : null);
       haptic.success();
       // Asked here, when a reminder has just been set up, rather than out of nowhere at launch.
       if (input.reminderDaysBefore !== null) requestNotificationPermission().catch(console.warn);
@@ -218,13 +252,20 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
 
   return (
     <FormScreen>
-      <PageHeader title={existing ? 'Edit subscription' : 'New subscription'} />
+      <PageHeader title={`${existing ? 'Edit' : 'New'} ${isBill ? 'bill' : 'subscription'}`} />
+
+      <Field label="Type">
+        <ChipGroup options={KINDS} value={kind} onChange={changeKind} label={(k) => KIND_LABELS[k]} />
+        <ThemedText type="small" themeColor="textSecondary">
+          {KIND_HINTS[kind]}
+        </ThemedText>
+      </Field>
 
       <Field label="Name">
         <TextField
           value={name}
           onChangeText={setName}
-          placeholder="Netflix, climbing gym…"
+          placeholder={isBill ? 'Mortgage, internet…' : 'Netflix, climbing gym…'}
           autoCapitalize="words"
           autoFocus={!existing}
           returnKeyType="next"
@@ -244,28 +285,30 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
 
       {!existing && (
         <>
-          <Field label={priceFieldLabel(tax, currency, hasIntroPrice ? 'Regular price' : 'Price')}>
+          <Field label={priceFieldLabel(tax, currency, hasIntroPrice ? 'Regular price' : isBill ? 'Amount' : 'Price')}>
             <TextField value={priceText} onChangeText={setPriceText} placeholder={moneyPlaceholder(currency)} keyboardType={currencyDecimals(currency) === 0 ? 'number-pad' : 'decimal-pad'} />
           </Field>
 
-          <View style={styles.switchRow}>
-            <View style={styles.switchText}>
-              <ThemedText type="smallBold">Discounted first payment</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                An intro price, like a domain&apos;s first year. Renewals are at the regular price.
-              </ThemedText>
+          {!isBill && (
+            <View style={styles.switchRow}>
+              <View style={styles.switchText}>
+                <ThemedText type="smallBold">Discounted first payment</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  An intro price, like a domain&apos;s first year. Renewals are at the regular price.
+                </ThemedText>
+              </View>
+              <Switch
+                value={introSwitch}
+                onValueChange={(value) => {
+                  haptic.select();
+                  setIntroSwitch(value);
+                }}
+                trackColor={{ true: theme.tint, false: theme.border }}
+                thumbColor={theme.backgroundElement}
+                accessibilityLabel="Discounted first payment"
+              />
             </View>
-            <Switch
-              value={hasIntroPrice}
-              onValueChange={(value) => {
-                haptic.select();
-                setHasIntroPrice(value);
-              }}
-              trackColor={{ true: theme.tint, false: theme.border }}
-              thumbColor={theme.backgroundElement}
-              accessibilityLabel="Discounted first payment"
-            />
-          </View>
+          )}
 
           {hasIntroPrice && (
             <Field label={priceFieldLabel(tax, currency, 'First payment price')}>
@@ -326,7 +369,7 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
         </View>
       )}
 
-      <Field label="Billed every">
+      <Field label={isBill ? 'Paid every' : 'Billed every'}>
         <CycleField
           countText={cycleCountText}
           onCountTextChange={setCycleCountText}
@@ -341,23 +384,25 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
         )}
       </Field>
 
-      <View style={styles.switchRow}>
-        <View style={styles.switchText}>
-          <ThemedText type="smallBold">Free trial</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            Free until the date below, then charged.
-          </ThemedText>
+      {!isBill && (
+        <View style={styles.switchRow}>
+          <View style={styles.switchText}>
+            <ThemedText type="smallBold">Free trial</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Free until the date below, then charged.
+            </ThemedText>
+          </View>
+          <Switch
+            value={trialSwitch}
+            onValueChange={(value) => {
+              haptic.select();
+              setTrialSwitch(value);
+            }}
+            trackColor={{ true: theme.trial, false: theme.border }}
+            thumbColor={theme.backgroundElement}
+          />
         </View>
-        <Switch
-          value={isTrial}
-          onValueChange={(value) => {
-            haptic.select();
-            setIsTrial(value);
-          }}
-          trackColor={{ true: theme.trial, false: theme.border }}
-          thumbColor={theme.backgroundElement}
-        />
-      </View>
+      )}
 
       <Field label={isTrial ? 'Trial ends, first charge on' : 'First payment'}>
         <DateField value={firstPaymentDate} onChange={setFirstPaymentDate} defaultDate={new Date()} />
@@ -371,11 +416,60 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
             <ThemedText type="small" themeColor="textSecondary">
               {renewsEarlyDays > 0
                 ? 'The day you bought it, not a renewal: renewals are counted on from it.'
-                : 'Any past charge works: renewals are counted on from it.'}
+                : isBill
+                  ? 'Any past payment works: the ones after it are counted on from it.'
+                  : 'Any past charge works: renewals are counted on from it.'}
             </ThemedText>
           )
         )}
       </Field>
+
+      {isBill && !existing && (
+        <>
+          <View style={styles.switchRow}>
+            <View style={styles.switchText}>
+              <ThemedText type="smallBold">Ends on a set day</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                For a mortgage or loan with a last payment, or a lease that ends.
+              </ThemedText>
+            </View>
+            <Switch
+              value={hasLastPayment}
+              onValueChange={(value) => {
+                haptic.select();
+                setHasLastPayment(value);
+              }}
+              trackColor={{ true: theme.tint, false: theme.border }}
+              thumbColor={theme.backgroundElement}
+              accessibilityLabel="Ends on a set day"
+            />
+          </View>
+
+          {hasLastPayment && (
+            <Field label="Last payment">
+              <DateField
+                value={lastPaymentDate}
+                onChange={setLastPaymentDate}
+                defaultDate={fromDateKey(lastPaymentDate)}
+                minimumDate={fromDateKey(firstPaymentDate)}
+              />
+              {!lastPaymentValid ? (
+                <ThemedText type="small" themeColor="danger">
+                  Pick a day on or after the first payment.
+                </ThemedText>
+              ) : (
+                payments.length > 0 && (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {payments.length === 1
+                      ? `One payment, on ${formatDateKey(payments[0])}.`
+                      : `${payments.length} payments, the last on ${formatDateKey(payments[payments.length - 1])}.`}
+                  </ThemedText>
+                )
+              )}
+            </Field>
+          )}
+        </>
+      )}
 
       {showRenewsEarly && (
         <Field label="Renews">
@@ -401,14 +495,14 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
 
       <Field label="Category">
         <ChipGroup
-          options={CATEGORIES}
+          options={KIND_CATEGORIES[kind]}
           value={category}
           onChange={setCategory}
           label={(c) => CATEGORY_INFO[c].label}
         />
       </Field>
 
-      <Field label={isTrial ? 'Remind me before it ends' : 'Remind me before it renews'}>
+      <Field label={isTrial ? 'Remind me before it ends' : isBill ? 'Remind me before it’s due' : 'Remind me before it renews'}>
         <ChipGroup options={REMINDER_OPTIONS} value={reminder} onChange={setReminder} label={reminderLabel} />
       </Field>
 
@@ -416,13 +510,13 @@ function SubscriptionForm({ existing }: { existing?: Subscription }) {
         <TextField
           value={notes}
           onChangeText={setNotes}
-          placeholder="Plan, account email, how to cancel…"
+          placeholder={isBill ? 'Account number, lender, how it’s paid…' : 'Plan, account email, how to cancel…'}
           multiline
           style={styles.notes}
         />
       </Field>
 
-      <Button title={existing ? 'Save' : 'Add subscription'} onPress={save} disabled={!valid} loading={saving} />
+      <Button title={existing ? 'Save' : isBill ? 'Add bill' : 'Add subscription'} onPress={save} disabled={!valid} loading={saving} />
     </FormScreen>
   );
 }

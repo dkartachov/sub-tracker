@@ -82,15 +82,15 @@ function PlanForm({ sub, kind }: { sub: Subscription; kind: Kind }) {
   return (
     <FormScreen>
       <PageHeader
-        title={kind === 'resume' ? `Resume ${sub.name}` : 'Change plan'}
+        title={kind === 'resume' ? `${sub.kind === 'bill' ? 'Restart' : 'Resume'} ${sub.name}` : 'Change plan'}
         subtitle={
           kind === 'resume'
-            ? `Cancelled since ${formatDateKey(last.end!)}. Nothing is counted for the time in between.`
+            ? `${sub.kind === 'bill' ? 'Ended' : 'Cancelled'} since ${formatDateKey(last.end!)}. Nothing is counted for the time in between.`
             : `${sub.name}, now every ${formatCycle(last.cycle)}. Charges before the switch keep the old plan.`
         }
       />
 
-      <Field label={kind === 'resume' ? 'First charge again on' : 'New plan from'}>
+      <Field label={kind === 'resume' ? (sub.kind === 'bill' ? 'First payment again on' : 'First charge again on') : 'New plan from'}>
         <DateField
           value={from}
           onChange={(date) => {
@@ -128,7 +128,7 @@ function PlanForm({ sub, kind }: { sub: Subscription; kind: Kind }) {
 
       {valid && <ThemedText>{summary}</ThemedText>}
 
-      <Button title={kind === 'resume' ? 'Resume' : 'Change plan'} onPress={save} disabled={!valid} loading={saving} />
+      <Button title={kind === 'resume' ? (sub.kind === 'bill' ? 'Restart' : 'Resume') : 'Change plan'} onPress={save} disabled={!valid} loading={saving} />
     </FormScreen>
   );
 }

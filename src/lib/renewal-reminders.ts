@@ -72,10 +72,15 @@ export function planReminders(
       const when = daysBefore === 0 ? 'today' : `on ${formatPaymentDay(paymentDate)}`;
       planned.push({
         // Holds everything the notification says, so any edit replaces it with a fresh one.
-        identifier: ['renewal', sub.id, paymentDate, daysBefore, lateDays, timeKey(time), amount, sub.name].join('|'),
+        identifier: ['renewal', sub.id, paymentDate, daysBefore, lateDays, timeKey(time), amount, sub.name, sub.kind].join('|'),
         date,
         subscriptionId: sub.id,
-        title: isTrialEnd ? `${sub.name} trial ends ${dayPhrase(daysBefore)}` : `${sub.name} renews ${dayPhrase(daysBefore)}`,
+        // A bill doesn't renew, it's due.
+        title: isTrialEnd
+          ? `${sub.name} trial ends ${dayPhrase(daysBefore)}`
+          : sub.kind === 'bill'
+            ? `${sub.name} is due ${dayPhrase(daysBefore)}`
+            : `${sub.name} renews ${dayPhrase(daysBefore)}`,
         body: isTrialEnd
           ? `You'll be charged ${amount} unless you cancel.`
           : lateDays === 0

@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { toCategory, type Category } from '@/constants/categories';
+import { toCategory, toKind, type Category, type Kind } from '@/constants/categories';
 import {
   chargedOn,
   chargesLandedBy,
@@ -28,6 +28,8 @@ import { useDbQuery } from './use-db-query';
 export type Subscription = Billing & {
   id: number;
   name: string;
+  /** A subscription or a bill (mortgage, insurance, internet): see `KINDS`. */
+  kind: Kind;
   category: Category;
   isTrial: boolean;
   reminderDaysBefore: number | null;
@@ -125,6 +127,7 @@ export function typedPrice(sub: Subscription, today: DateKey = todayKey()) {
 type SubscriptionRow = {
   id: number;
   name: string;
+  kind: string;
   category: string;
   is_trial: number;
   reminder_days_before: number | null;
@@ -159,6 +162,7 @@ function toSubscription(row: SubscriptionRow, periods: BillingPeriod[], prices: 
   return {
     id: row.id,
     name: row.name,
+    kind: toKind(row.kind),
     category: toCategory(row.category),
     isTrial: row.is_trial === 1,
     reminderDaysBefore: row.reminder_days_before,
@@ -183,7 +187,7 @@ function groupBy<Row extends { subscription_id: number }, T>(rows: Row[], map: (
 }
 
 const SELECT_SUBSCRIPTIONS =
-  'SELECT id, name, category, is_trial, reminder_days_before, charge_window_days, renews_early_days, tax_rate, price_includes_tax, notes FROM subscriptions';
+  'SELECT id, name, kind, category, is_trial, reminder_days_before, charge_window_days, renews_early_days, tax_rate, price_includes_tax, notes FROM subscriptions';
 const SELECT_PERIODS = 'SELECT subscription_id, start_date, cycle_count, cycle_unit, end_date FROM billing_periods';
 const SELECT_PRICES = 'SELECT subscription_id, amount, effective_date FROM price_changes';
 const SELECT_PAID = 'SELECT subscription_id, charge_date FROM paid_charges';
@@ -211,20 +215,23 @@ export async function getSubscription(db: SQLiteDatabase, id: number): Promise<S
 
 /**
  * Adds a subscription charging `amount` from its first payment, returning its ID. With
- * `firstAmount`, the first payment alone costs that (an intro discount) and `amount` follows.
+ * `firstAmount`, the first payment alone costs that (an intro discount) and `amount` follows. With
+ * `end`, charges stop on that day (a bill with a known last payment, like a mortgage paid off then).
  */
 export async function createSubscription(
   db: SQLiteDatabase,
   input: SubscriptionInput,
   amount: number,
-  firstAmount: number | null = null
+  firstAmount: number | null = null,
+  end: DateKey | null = null
 ) {
   let id = 0;
   await db.withTransactionAsync(async () => {
     const result = await db.runAsync(
-      `INSERT INTO subscriptions (name, category, is_trial, reminder_days_before, charge_window_days, renews_early_days, tax_rate, price_includes_tax, notes, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO subscriptions (name, kind, category, is_trial, reminder_days_before, charge_window_days, renews_early_days, tax_rate, price_includes_tax, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.name,
+      input.kind,
       input.category,
       input.isTrial ? 1 : 0,
       input.reminderDaysBefore,
@@ -237,11 +244,12 @@ export async function createSubscription(
     );
     id = result.lastInsertRowId;
     await db.runAsync(
-      'INSERT INTO billing_periods (subscription_id, start_date, cycle_count, cycle_unit) VALUES (?, ?, ?, ?)',
+      'INSERT INTO billing_periods (subscription_id, start_date, cycle_count, cycle_unit, end_date) VALUES (?, ?, ?, ?, ?)',
       id,
       input.firstPaymentDate,
       input.cycle.count,
-      input.cycle.unit
+      input.cycle.unit,
+      end
     );
     const period = { start: input.firstPaymentDate, cycle: input.cycle };
     for (const price of startingPrices(period, amount, firstAmount, input.renewsEarlyDays)) {
@@ -263,9 +271,10 @@ const LAST_PERIOD = '(SELECT id FROM billing_periods WHERE subscription_id = ? O
 export async function updateSubscription(db: SQLiteDatabase, id: number, input: SubscriptionInput) {
   await db.withTransactionAsync(async () => {
     await db.runAsync(
-      `UPDATE subscriptions SET name = ?, category = ?, is_trial = ?, reminder_days_before = ?, charge_window_days = ?,
+      `UPDATE subscriptions SET name = ?, kind = ?, category = ?, is_trial = ?, reminder_days_before = ?, charge_window_days = ?,
         renews_early_days = ?, tax_rate = ?, price_includes_tax = ?, notes = ? WHERE id = ?`,
       input.name,
+      input.kind,
       input.category,
       input.isTrial ? 1 : 0,
       input.reminderDaysBefore,

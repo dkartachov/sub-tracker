@@ -25,7 +25,7 @@ import {
   fromDateKey,
   type DateKey,
 } from '@/lib/dates';
-import { getOverview, isHousing, monthlySpending, UPCOMING_DAYS } from '@/lib/spending';
+import { getOverview, isBill, monthlySpending, UPCOMING_DAYS } from '@/lib/spending';
 
 /** Upcoming charges beyond this many are left to the Subscriptions tab. */
 const UPCOMING_SHOWN = 6;
@@ -39,13 +39,19 @@ export default function OverviewScreen() {
 
   if (subs.length === 0) {
     return (
-      <Screen title="Overview" subtitle="Your subscriptions at a glance.">
+      <Screen title="Overview" subtitle="Your subscriptions and bills at a glance.">
         <Card style={styles.empty}>
           <ThemedText type="subtitle">Nothing tracked yet</ThemedText>
           <ThemedText themeColor="textSecondary">
-            Add Netflix, your gym or anything else you pay for regularly, and see what it all costs here.
+            Add Netflix, your gym or anything else you subscribe to, and your bills (mortgage or rent, insurance,
+            internet), and see what it all costs here.
           </ThemedText>
-          <Button title="Add a subscription" onPress={() => router.push('/subscription/edit')} />
+          <Button title="Add a subscription" onPress={() => router.push({ pathname: '/subscription/edit', params: { kind: 'subscription' } })} />
+          <Button
+            title="Add a bill"
+            variant="secondary"
+            onPress={() => router.push({ pathname: '/subscription/edit', params: { kind: 'bill' } })}
+          />
         </Card>
       </Screen>
     );
@@ -54,35 +60,43 @@ export default function OverviewScreen() {
   const overview = getOverview(subs, today);
   const money = (minor: number) => formatMoney(minor, currency);
   const biggestCategory = overview.byCategory[0]?.monthly ?? 0;
-  const { housing } = overview;
+  const { bills } = overview;
   const year = today.slice(0, 4);
+  const hasSubscriptions = subs.some((sub) => !isBill(sub));
+  const hasBills = subs.some(isBill);
 
   return (
     <Screen
       title="Overview"
       eyebrow={fromDateKey(today).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}>
-      <Card style={styles.totals}>
-        <ThemedText type="eyebrow" themeColor="textSecondary">
-          Per month
-        </ThemedText>
-        <ThemedText type="stat" style={styles.bigStat}>
-          {money(overview.monthly)}
-        </ThemedText>
-        <ThemedText themeColor="textSecondary">
-          {money(overview.yearly)} a year · {overview.activeCount} active
-          {overview.trialCount > 0 && ` · ${overview.trialCount} on trial`}
-        </ThemedText>
-      </Card>
-
-      {(housing.monthly > 0 || housing.spentThisYear > 0) && (
-        <Section title="Housing">
-          <InfoRow label="Per month" value={money(housing.monthly)} />
-          <InfoRow label="Per year" value={money(housing.yearly)} />
-          <InfoRow label={`Spent in ${year}`} value={money(housing.spentThisYear)} />
-          <ThemedText type="small" themeColor="textSecondary">
-            Rent, mortgage and other housing costs, kept out of the subscription totals.
+      {(hasSubscriptions || !hasBills) && (
+        <Card style={styles.totals}>
+          <ThemedText type="eyebrow" themeColor="textSecondary">
+            Subscriptions per month
           </ThemedText>
-        </Section>
+          <ThemedText type="stat" style={styles.bigStat}>
+            {money(overview.monthly)}
+          </ThemedText>
+          <ThemedText themeColor="textSecondary">
+            {money(overview.yearly)} a year · {overview.activeCount} active
+            {overview.trialCount > 0 && ` · ${overview.trialCount} on trial`}
+          </ThemedText>
+        </Card>
+      )}
+
+      {hasBills && (
+        <Card style={styles.totals}>
+          <ThemedText type="eyebrow" themeColor="textSecondary">
+            Bills per month
+          </ThemedText>
+          <ThemedText type="stat" style={hasSubscriptions ? undefined : styles.bigStat}>
+            {money(bills.monthly)}
+          </ThemedText>
+          <ThemedText themeColor="textSecondary">
+            {money(bills.yearly)} a year · {bills.activeCount} {bills.activeCount === 1 ? 'bill' : 'bills'} ·{' '}
+            {money(bills.spentThisYear)} paid in {year}
+          </ThemedText>
+        </Card>
       )}
 
       {overview.trialsEnding.length > 0 && (
@@ -139,7 +153,7 @@ export default function OverviewScreen() {
       </Section>
 
       {overview.byCategory.length > 0 && (
-        <Section title="By category, per month">
+        <Section title="Subscriptions by category, per month">
           {overview.byCategory.map(({ category, monthly }) => (
             <CategoryBar
               key={category}
@@ -152,16 +166,21 @@ export default function OverviewScreen() {
         </Section>
       )}
 
-      <Section title="Last 12 months">
-        <SpendingChart months={monthlySpending(subs.filter((sub) => !isHousing(sub)), today)} />
-      </Section>
+      {hasSubscriptions && (
+        <>
+          <Section title="Subscriptions, last 12 months">
+            <SpendingChart months={monthlySpending(subs.filter((sub) => !isBill(sub)), today)} />
+          </Section>
 
-      <Section title={`Spent in ${year}`}>
-        <ThemedText type="stat">{money(overview.spentThisYear)}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          Charged since January 1, including subscriptions you&apos;ve since cancelled.
-        </ThemedText>
-      </Section>
+          <Section title={`Spent on subscriptions in ${year}`}>
+            <ThemedText type="stat">{money(overview.spentThisYear)}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Charged since January 1, including subscriptions you&apos;ve since cancelled. Bills aren&apos;t counted
+              here.
+            </ThemedText>
+          </Section>
+        </>
+      )}
     </Screen>
   );
 }
