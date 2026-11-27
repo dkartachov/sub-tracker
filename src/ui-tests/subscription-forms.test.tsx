@@ -110,16 +110,14 @@ it('adds a bill from a suggestion, ending after a last payment, with no trial or
   expect(finalEnd(sub)).toBe(addDays(addMonthsClamped(todayKey(), 12 * 25), 1));
 });
 
-it('moves a subscription to the bills when editing, with the categories of bills', async () => {
-  const id = await createSubscription(mockDb, { ...netflix, name: 'Internet', category: 'other' }, 4500);
+it('keeps a bill a bill when editing, with the categories of bills', async () => {
+  const id = await createSubscription(mockDb, { ...netflix, name: 'Internet', kind: 'bill', category: 'other' }, 4500);
   mockParams = { id: String(id) };
   await renderScreen(<EditSubscriptionScreen />);
-  expect(await screen.findByText('Edit subscription')).toBeTruthy();
-  expect(screen.queryByText('Housing')).toBeNull();
-
-  await fireEvent.press(screen.getByText('Bill'));
-  expect(screen.getByText('Housing')).toBeTruthy();
+  expect(await screen.findByText('Edit bill')).toBeTruthy();
+  expect(screen.queryByText('Type')).toBeNull();
   expect(screen.queryByText('Streaming')).toBeNull();
+
   await fireEvent.press(screen.getByText('Utilities'));
   await fireEvent.press(screen.getByText('Save'));
 

@@ -13,7 +13,7 @@ import { FormScreen } from '@/components/form-screen';
 import { PageHeader } from '@/components/page-header';
 import { ScrollView } from '@/components/scroll-view';
 import { ThemedText } from '@/components/themed-text';
-import { CATEGORY_INFO, KIND_CATEGORIES, KINDS, toKind, type Category, type Kind } from '@/constants/categories';
+import { CATEGORY_INFO, KIND_CATEGORIES, toKind, type Category, type Kind } from '@/constants/categories';
 import { suggestTemplates, type SubscriptionTemplate } from '@/constants/templates';
 import { Spacing } from '@/constants/theme';
 import {
@@ -59,14 +59,6 @@ const RENEWS_EARLY_OPTIONS = [0, 7, 14, 30, 60];
 /** Renewing early is offered from cycles this many days ahead fit in (two months and up), or once it's been set. */
 const RENEWS_EARLY_SHOWN_FROM = 30;
 
-const KIND_LABELS: Record<Kind, string> = { subscription: 'Subscription', bill: 'Bill' };
-
-/** Editing only: what moving it to the other kind does. Adding, the tab it was added from decides. */
-const KIND_HINTS: Record<Kind, string> = {
-  subscription: 'Counted with your subscriptions. Pick “Bill” to move it to Bills, with their own tab and totals.',
-  bill: 'Counted with your bills. Pick “Subscription” to move it to Subscriptions.',
-};
-
 /** `standard` that are at most `max`, plus one already saved that isn't among them, in order. */
 function dayOptions(standard: number[], saved: number, max: number) {
   const options = saved > 0 && !standard.includes(saved) ? [...standard, saved] : standard;
@@ -108,22 +100,21 @@ function reminderLabel(days: ReminderOption) {
 
 /**
  * Adds a subscription or bill (of the `kind` asked for, from the tab it was added on), or edits the
- * one in `id`, which can also move it to the other kind.
+ * one in `id`. Which kind it is stays as it was added.
  */
 export default function EditSubscriptionScreen() {
   const { id, kind } = useLocalSearchParams<{ id?: string; kind?: string }>();
   const existing = useSubscription(Number(id ?? 0));
 
-  if (id === undefined) return <SubscriptionForm initialKind={toKind(kind ?? '')} />;
-  return existing ? <SubscriptionForm existing={existing} initialKind={existing.kind} /> : null;
+  if (id === undefined) return <SubscriptionForm kind={toKind(kind ?? '')} />;
+  return existing ? <SubscriptionForm existing={existing} kind={existing.kind} /> : null;
 }
 
-function SubscriptionForm({ existing, initialKind }: { existing?: Subscription; initialKind: Kind }) {
+function SubscriptionForm({ existing, kind }: { existing?: Subscription; kind: Kind }) {
   const db = useSQLiteContext();
   const theme = useTheme();
   const currency = useCurrency();
 
-  const [kind, setKind] = useState<Kind>(initialKind);
   const [name, setName] = useState(existing?.name ?? '');
   const [priceText, setPriceText] = useState('');
   // With several billing periods (after a resume or plan change), the form edits the first one's
@@ -133,7 +124,7 @@ function SubscriptionForm({ existing, initialKind }: { existing?: Subscription; 
   const [cycleUnit, setCycleUnit] = useState<CycleUnit>(existingCycle?.unit ?? 'month');
   const [firstPaymentDate, setFirstPaymentDate] = useState(existing ? firstPaymentOf(existing) : todayKey());
   const [trialSwitch, setTrialSwitch] = useState(existing?.isTrial ?? false);
-  const [category, setCategory] = useState<Category>(existing?.category ?? KIND_CATEGORIES[initialKind][0]);
+  const [category, setCategory] = useState<Category>(existing?.category ?? KIND_CATEGORIES[kind][0]);
   const [reminder, setReminder] = useState<ReminderOption>(
     existing ? ((existing.reminderDaysBefore ?? -1) as ReminderOption) : DEFAULT_REMINDER_DAYS
   );
@@ -211,12 +202,6 @@ function SubscriptionForm({ existing, initialKind }: { existing?: Subscription; 
     endsOnSetDay && cycle && lastPaymentValid
       ? paymentsBetween({ periods: [{ start: firstPaymentDate, cycle, end: null }] }, firstPaymentDate, lastPaymentDate)
       : [];
-
-  const changeKind = (next: Kind) => {
-    setKind(next);
-    // Each kind has its own categories; "Other" is in both.
-    if (!KIND_CATEGORIES[next].includes(category)) setCategory(KIND_CATEGORIES[next][0]);
-  };
 
   const applyTemplate = (template: SubscriptionTemplate) => {
     setName(template.name);
@@ -486,15 +471,6 @@ function SubscriptionForm({ existing, initialKind }: { existing?: Subscription; 
             {chargeWindowDays === 0
               ? 'For ones that charge around a day, not on it (the weekend after, say), pick how late it can be.'
               : `Set ${isTrial ? 'the trial end' : 'the first payment'} to the earliest day it charges. Each charge is shown as due up to ${formatChargeWindow(chargeWindowDays)} after that, and reminders come before the earliest day.`}
-          </ThemedText>
-        </Field>
-      )}
-
-      {existing && (
-        <Field label="Type">
-          <ChipGroup options={KINDS} value={kind} onChange={changeKind} label={(k) => KIND_LABELS[k]} />
-          <ThemedText type="small" themeColor="textSecondary">
-            {KIND_HINTS[kind]}
           </ThemedText>
         </Field>
       )}
